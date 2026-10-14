@@ -3223,7 +3223,7 @@ wheels = [
 
 [[package]]
 name = "verdict"
-version = "0.2.8+moyai.0.0.0"
+version = "0.2.8+moyai.0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
