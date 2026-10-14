@@ -27,9 +27,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "instructor>=1.15.1",
-    "litellm>=1.85.0",
-    "openai>=2.29.0",
+    "instructor>=1.17.0",
+    "litellm>=1.105.1",
+    "openai>=2.54.0",
     "dill",
     "graphviz",
     "pandas",
