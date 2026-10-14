@@ -1,7 +1,7 @@
 import re
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any
 
 from pydantic import Field
 from pydantic.fields import FieldInfo
@@ -15,7 +15,7 @@ class ScaleType(Enum):
 
 
 class Scale(ABC):
-    T: Type
+    T: type
 
     def __init__(self, scale_type: ScaleType, end_is_worst: bool = False) -> None:
         self.scale_type = scale_type
@@ -23,7 +23,7 @@ class Scale(ABC):
         self.signifiers = ["best", "worst"] if end_is_worst else ["worst", "best"]
 
     @abstractmethod
-    def pydantic_fields(self, key: str = "output") -> Dict[str, Tuple[Any, Any]]:
+    def pydantic_fields(self, key: str = "output") -> dict[str, tuple[Any, Any]]:
         pass
 
     @abstractmethod
@@ -36,11 +36,11 @@ class Scale(ABC):
 
 
 class DiscreteScale(Scale):
-    values: List[Any]
+    values: list[Any]
 
     def __init__(
         self,
-        values: Union[List[Any], Tuple[Any, Any], Tuple[Any, Any, Optional[int]]],
+        values: list[Any] | tuple[Any, Any] | tuple[Any, Any, int | None],
         end_is_worst: bool = False,
     ):
         super().__init__(ScaleType.DISCRETE, end_is_worst)
@@ -79,7 +79,7 @@ class DiscreteScale(Scale):
 
         self.T = type(self.values[0])
 
-    def pydantic_fields(self, key: str = "output") -> Dict[str, Tuple[Any, FieldInfo]]:
+    def pydantic_fields(self, key: str = "output") -> dict[str, tuple[Any, FieldInfo]]:
         if self.T in [int, float] and hasattr(self, "start") and hasattr(self, "end"):
             output_field = Field(..., ge=self.start, le=self.end)
         else:
@@ -93,7 +93,7 @@ class DiscreteScale(Scale):
     def prompt(self) -> str:
         return f"""Respond with a single output value from "{'", "'.join(map(str, self.values))}" where "{self.values[0]}" is {self.signifiers[0]} and "{self.values[-1]}" is {self.signifiers[1]}."""
 
-    def token_support(self) -> List[str]:
+    def token_support(self) -> list[str]:
         return [str(value) for value in self.values]
 
     def index(self, token: str) -> int:
@@ -116,8 +116,10 @@ class DiscreteScale(Scale):
 
 class BooleanScale(DiscreteScale):
     def __init__(
-        self, yes: List[str] = ["yes", "Yes", "YES"], no: List[str] = ["no", "No", "NO"]
+        self, yes: list[str] | None = None, no: list[str] | None = None
     ) -> None:
+        yes = ["yes", "Yes", "YES"] if yes is None else yes
+        no = ["no", "No", "NO"] if no is None else no
         values = no + yes
         super().__init__(values=values)
 
@@ -126,19 +128,17 @@ class BooleanScale(DiscreteScale):
 
         self.T = bool
 
-    def pydantic_fields(self, key: str = "output") -> Dict[str, Tuple[Any, FieldInfo]]:
+    def pydantic_fields(self, key: str = "output") -> dict[str, tuple[Any, FieldInfo]]:
         return {key: (bool, Field(...))}
 
-    def token_support(self) -> List[str]:
+    def token_support(self) -> list[str]:
         return self.yes + self.no
 
     def value_mapping_fn(self, output: str) -> bool:
-        if output in self.yes:
-            return True
-        return False
+        return output in self.yes
 
     def __str__(self) -> str:
-        return ",".join(map(lambda v: "/".join(v), [self.yes, self.no]))
+        return ",".join("/".join(v) for v in [self.yes, self.no])
 
 
 class ContinuousScale(Scale):
@@ -155,7 +155,7 @@ class ContinuousScale(Scale):
 
         self.T = float
 
-    def pydantic_fields(self, key: str = "output") -> Dict[str, Tuple[Any, FieldInfo]]:
+    def pydantic_fields(self, key: str = "output") -> dict[str, tuple[Any, FieldInfo]]:
         return {
             key: (float, Field(..., ge=self.min_value, le=self.max_value)),
         }

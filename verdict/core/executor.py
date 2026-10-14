@@ -1,28 +1,20 @@
 from __future__ import annotations
 
+import builtins
 import concurrent.futures
 import copy
 import itertools
 import resource
 import threading
 from abc import ABC, abstractmethod
-from contextlib import ExitStack, contextmanager
+from collections.abc import Callable, Collection
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from enum import Enum
 from pathlib import Path
 from typing import (
     Any,
-    Callable,
-    Collection,
-    ContextManager,
-    Dict,
     Generic,
-    List,
-    Optional,
-    Set,
-    Tuple,
-    Type,
     TypeVar,
-    Union,
 )
 
 import dill  # type: ignore[import-untyped]
@@ -46,7 +38,7 @@ class CascadingProperty:
     def __init__(
         self,
         name: str,
-        nodes_fn: Callable[[Any], Collection["Node"]] = lambda graph: graph.nodes,
+        nodes_fn: Callable[[Any], Collection[Node]] = lambda graph: graph.nodes,
         obj_fn: Callable[[Any], Any] = lambda unit: unit,
         default_factory: Callable[[], Any] = lambda: None,
     ):
@@ -68,7 +60,7 @@ class CascadingProperty:
 
 
 def CascadingSetter(
-    attr_name: str, attr_type: Optional[Type] = Any
+    attr_name: str, attr_type: type | None = Any
 ) -> Callable[[Any], Self]:
     def setter(self, value: attr_type = None) -> Self:
         # Utilize CascadingProperty's __set__ via setattr
@@ -80,8 +72,8 @@ def CascadingSetter(
 
 
 class Node(ABC):
-    dependencies: Set[Self]
-    dependents: Set[Self]
+    dependencies: builtins.set[Self]
+    dependents: builtins.set[Self]
 
     graph = CascadingProperty("_graph")
     source_input = CascadingProperty("_source_input")
@@ -107,9 +99,9 @@ class Node(ABC):
     idx = CascadingSetter("__idx")
 
     _ordering_timestamp: float
-    parent: Optional[Graph[Node]]
+    parent: Graph[Node] | None
 
-    def __init__(self, name: Optional[str] = None, **kwargs) -> None:
+    def __init__(self, name: str | None = None, **kwargs) -> None:
         self.name = name
 
         self.dependencies = set()
@@ -142,40 +134,40 @@ class Node(ABC):
         """
 
     @abstractmethod
-    def __rshift__(self, other: Union["Node", "Graph[Node]"]) -> None:
+    def __rshift__(self, other: Node | Graph[Node]) -> None:
         pass
 
     @abstractmethod
-    def link(self, other: Union["Node", "Graph[Node]"]) -> None:
+    def link(self, other: Node | Graph[Node]) -> None:
         pass
 
     @abstractmethod
-    def _materialize(self, context) -> Tuple[Self, Any]:
+    def _materialize(self, context) -> tuple[Self, Any]:
         pass
 
     @contextmanager
-    def freeze(self) -> ContextManager[None]:  # type: ignore
+    def freeze(self) -> AbstractContextManager[None]:  # type: ignore
         try:
             yield
         finally:
             pass
 
     @contextmanager
-    def freeze_root_nodes(self) -> ContextManager[None]:  # type: ignore
+    def freeze_root_nodes(self) -> AbstractContextManager[None]:  # type: ignore
         try:
             yield
         finally:
             pass
 
     @contextmanager
-    def freeze_leaf_nodes(self) -> ContextManager[None]:  # type: ignore
+    def freeze_leaf_nodes(self) -> AbstractContextManager[None]:  # type: ignore
         try:
             yield
         finally:
             pass
 
     @contextmanager
-    def freeze_all_nodes(self) -> ContextManager[None]:  # type: ignore
+    def freeze_all_nodes(self) -> AbstractContextManager[None]:  # type: ignore
         try:
             yield
         finally:
@@ -218,8 +210,8 @@ class GraphExecutor:
 
     def __init__(
         self,
-        max_workers: Optional[int] = None,
-        execution_context: Optional["ExecutionContext"] = None,
+        max_workers: int | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> None:
         soft_fd_limit, hard_fd_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
         requested_soft_fd_limit = min(
@@ -249,12 +241,12 @@ class GraphExecutor:
         self.execution_state = GraphExecutor.State.SUCCESS
         self.execution_state_lock = threading.Lock()
 
-        self.execution_pool: Set[Task] = set()
+        self.execution_pool: set[Task] = set()
 
-        self.outputs: Dict[Task, Schema] = {}
-        self.input_data_map: Dict[Task, Schema] = {}
-        self.task_to_call_id: Dict[Task, str] = {}  # Track call_id for each task
-        self.task_to_trace_id: Dict[Task, str] = {}  # Track trace_id for each task
+        self.outputs: dict[Task, Schema] = {}
+        self.input_data_map: dict[Task, Schema] = {}
+        self.task_to_call_id: dict[Task, str] = {}  # Track call_id for each task
+        self.task_to_trace_id: dict[Task, str] = {}  # Track trace_id for each task
 
         from verdict.util.tracing import ExecutionContext
 
@@ -262,7 +254,7 @@ class GraphExecutor:
             execution_context or ExecutionContext()
         )
 
-        self.pending_tasks: Set[Task] = set()
+        self.pending_tasks: set[Task] = set()
         self.active_task_count = 0
 
     def graceful_shutdown(self) -> None:
@@ -271,13 +263,13 @@ class GraphExecutor:
 
     def submit(
         self,
-        tasks: List["Unit"],  # noqa: F821 # type: ignore
+        tasks: list[Unit],  # noqa: F821 # type: ignore
         input_data: Schema,
         leader: bool = False,
-        execution_context: Optional["ExecutionContext"] = None,
-        trace_id: str = None,
-        parent_id: str = None,
-    ) -> None:  # noqa: F821 # type: ignore[name-defined]
+        execution_context: ExecutionContext | None = None,
+        trace_id: str | None = None,
+        parent_id: str | None = None,
+    ) -> None:  # type: ignore[name-defined]
         execution_context = execution_context or self.execution_context
         with self.lock:
             for task in tasks:
@@ -309,10 +301,10 @@ class GraphExecutor:
 
     def _try_execute(
         self,
-        task: "Unit",  # noqa: F821 # type: ignore
+        task: Unit,  # noqa: F821 # type: ignore
         leader: bool,
-        execution_context: Optional["ExecutionContext"] = None,
-    ) -> None:  # noqa: F821 # type: ignore[name-defined]
+        execution_context: ExecutionContext | None = None,
+    ) -> None:  # type: ignore[name-defined]
         execution_context = execution_context or self.execution_context
         logger = base_logger.bind(unit=".".join(task.prefix))
         with self.lock:
@@ -352,11 +344,11 @@ class GraphExecutor:
     @base_logger.catch()
     def _execute_task(
         self,
-        task: "Unit",  # noqa: F821 # type: ignore
+        task: Unit,  # noqa: F821 # type: ignore
         input_data: Schema,
         leader: bool,
-        execution_context: Optional["ExecutionContext"] = None,
-    ) -> None:  # noqa: F821 # type: ignore[name-defined]
+        execution_context: ExecutionContext | None = None,
+    ) -> None:  # type: ignore[name-defined]
         execution_context = execution_context or self.execution_context
         logger = base_logger.bind(unit=".".join(task.prefix), thread_id=task.thread_id)
         if self.is_complete.is_set():
@@ -414,7 +406,7 @@ class GraphExecutor:
 
             raise VerdictExecutionTimeError() from e
 
-    def _on_task_complete(self, task: "Unit") -> None:  # noqa: F821 # type: ignore[name-defined]
+    def _on_task_complete(self, task: Unit) -> None:  # noqa: F821 # type: ignore[name-defined]
         logger = base_logger.bind(unit=".".join(task.prefix), thread_id=task.thread_id)
         if self.is_complete.is_set():
             logger.error("Exiting early since executor has been marked is_complete")
@@ -436,8 +428,6 @@ class GraphExecutor:
                     self.input_data_map[dependent] = output
 
             task.completed = True
-
-            trace_id = self.task_to_trace_id.get(task, None)
 
             for dependent in task.dependents:
                 if all(dep.completed for dep in dependent.dependencies):
@@ -519,7 +509,7 @@ class GraphExecutor:
             dill.dump(self, f)
 
     @staticmethod
-    def load(path: Path) -> "GraphExecutor":
+    def load(path: Path) -> GraphExecutor:
         with open(path, "rb") as f:
             return dill.load(f)
 
@@ -527,12 +517,12 @@ class GraphExecutor:
 T = TypeVar("T", bound="Node")
 
 
-class Graph(Generic[T], Node, ABC):
-    def __init__(self, node_type: Type[T]) -> None:
-        self.nodes: Set[T] = set()
+class Graph(Node, ABC, Generic[T]):
+    def __init__(self, node_type: type[T]) -> None:
+        self.nodes: set[T] = set()
         self.node_type = node_type
 
-    def add(self, node: Union[T, List[T]]) -> None:
+    def add(self, node: T | list[T]) -> None:
         assert isinstance(node, self.node_type)
         node.graph = self
         self.nodes.add(node)
@@ -583,21 +573,21 @@ class Graph(Generic[T], Node, ABC):
             node.set(attr, value)
 
     @property
-    def root_nodes(self) -> List[T]:
+    def root_nodes(self) -> list[T]:
         if hasattr(self, "_root_nodes"):
             return self._root_nodes
         else:
             return list(filter(lambda node: len(node.dependencies) == 0, self.nodes))
 
     @property
-    def leaf_nodes(self) -> List[T]:
+    def leaf_nodes(self) -> list[T]:
         if hasattr(self, "_leaf_nodes"):
             return self._leaf_nodes
         else:
             return list(filter(lambda node: len(node.dependents) == 0, self.nodes))
 
     @contextmanager
-    def freeze(self) -> ContextManager[None]:  # type: ignore
+    def freeze(self) -> AbstractContextManager[None]:  # type: ignore
         """
         Freeze the root_nodes and leaf_nodes properties so that they can be iterated over
         without triggering a recomputation of the properties.
@@ -614,7 +604,7 @@ class Graph(Generic[T], Node, ABC):
                 del self._leaf_nodes
 
     @contextmanager
-    def freeze_leaf_nodes(self) -> ContextManager[None]:  # type: ignore
+    def freeze_leaf_nodes(self) -> AbstractContextManager[None]:  # type: ignore
         """Freeze all leaf nodes within a single `with` block."""
         with ExitStack() as stack:
             # Enter `freeze` for all leaf nodes
@@ -623,7 +613,7 @@ class Graph(Generic[T], Node, ABC):
             yield
 
     @contextmanager
-    def freeze_root_nodes(self) -> ContextManager[None]:  # type: ignore
+    def freeze_root_nodes(self) -> AbstractContextManager[None]:  # type: ignore
         """Freeze all leaf nodes within a single `with` block."""
         with ExitStack() as stack:
             # Enter `freeze` for all root nodes
@@ -632,31 +622,31 @@ class Graph(Generic[T], Node, ABC):
             yield
 
     @contextmanager
-    def freeze_all_nodes(self) -> ContextManager[None]:  # type: ignore
+    def freeze_all_nodes(self) -> AbstractContextManager[None]:  # type: ignore
         """Freeze all nodes within a single `with` block."""
         with ExitStack() as stack:
             for node in self.nodes:
                 stack.enter_context(node.freeze())
             yield
 
-    def copy(self) -> "Graph[T]":
+    def copy(self) -> Graph[T]:
         return self.apply(lambda node: node.copy())
 
-    def clone(self) -> "Graph[T]":
+    def clone(self) -> Graph[T]:
         return self.apply(lambda node: node.clone())
 
-    def view(self) -> "Graph[T]":
+    def view(self) -> Graph[T]:
         return copy.copy(self)
 
     # avoid disturbing the relative ordering of nodes
     def sort_by_timestamp(self, nodes: Collection[Node]) -> Collection[Node]:
         return sorted(nodes, key=lambda node: getattr(node, "_ordering_timestamp", 0))
 
-    def apply(self, fn: Callable[[T], T]) -> "Graph[T]":
+    def apply(self, fn: Callable[[T], T]) -> Graph[T]:
         # NOTE: only call apply on materialized graphs
         other = type(self)()  # type: ignore
 
-        old_to_new: Dict[T, T] = {}
+        old_to_new: dict[T, T] = {}
 
         def map_old_to_new(node: T) -> T:
             if node in old_to_new:
@@ -665,9 +655,7 @@ class Graph(Generic[T], Node, ABC):
             old_to_new[node] = fn(node).clear_dependencies()
             return old_to_new[node]
 
-        for node, dependents in list(
-            map(lambda node: (node, list(node.dependents)), self.sort())
-        ):
+        for node, dependents in [(node, list(node.dependents)) for node in self.sort()]:
             if len(dependents) == 0:
                 other.add(map_old_to_new(node))
             else:
@@ -677,8 +665,8 @@ class Graph(Generic[T], Node, ABC):
         return other
 
     # topological sort the nodes
-    def sort(self) -> List[T]:
-        def traverse(nodes: Collection[T]) -> List[T]:
+    def sort(self) -> list[T]:
+        def traverse(nodes: Collection[T]) -> list[T]:
             visited = set()
             sorted_nodes = []
 
@@ -703,7 +691,7 @@ class Graph(Generic[T], Node, ABC):
         from graphviz import Digraph  # type: ignore[import-untyped]
 
         def build_graphviz(
-            nodes: Collection[T], dot: Digraph, visited: Optional[Set[T]] = None
+            nodes: Collection[T], dot: Digraph, visited: set[T] | None = None
         ) -> None:
             if visited is None:
                 visited = set()

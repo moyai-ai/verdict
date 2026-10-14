@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import List
 
 from verdict import Pipeline
 from verdict.common.cot import CoTUnit
@@ -82,7 +81,7 @@ class GEvalJudge:
             )
         )
 
-    def run(self, dataset: List[Schema]) -> List[float]:
+    def run(self, dataset: list[Schema]) -> list[float]:
         results_df, leaf_node_cols = self.pipeline.run_from_list(dataset)
         return list(results_df[leaf_node_cols[0]])
 

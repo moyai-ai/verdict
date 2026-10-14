@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import List
 
 from verdict import Block, Layer, Pipeline
 from verdict.common.judge import CategoricalJudgeUnit
@@ -80,7 +79,7 @@ class EnsembleVerifyJudge:
             >> MaxPoolUnit()
         )
 
-    def run(self, dataset: List[Schema]) -> List[str]:
+    def run(self, dataset: list[Schema]) -> list[str]:
         results_df, leaf_node_cols = self.pipeline.run_from_list(dataset)
         return list(results_df[leaf_node_cols[0]])
 

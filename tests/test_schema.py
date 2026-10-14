@@ -18,9 +18,14 @@ def test_schema_conform():
     input_instance = SchemaA(a="test", x=42)
 
     transformed_instance = input_instance.conform(SchemaB)
-    assert set(transformed_instance.model_fields.keys()) == set(
-        ["a", "x", "y", "name_factory", "name_default", "b"]
-    )
+    assert set(transformed_instance.model_fields.keys()) == {
+        "a",
+        "x",
+        "y",
+        "name_factory",
+        "name_default",
+        "b",
+    }
 
 
 def test_schema_conform_fail():

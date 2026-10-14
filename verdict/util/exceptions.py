@@ -49,15 +49,11 @@ class PostProcessError(VerdictDeclarationTimeError):
     Indicates an error in the process() method of a Unit.
     """
 
-    pass
-
 
 class PropagateError(VerdictDeclarationTimeError):
     """
     Indicates an error in the passed propagator function.
     """
-
-    pass
 
 
 # Execution-time errors

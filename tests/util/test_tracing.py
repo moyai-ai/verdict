@@ -108,9 +108,8 @@ def test_call_context_manager_exception_handling():
     call = Call(name="test", inputs={})
     test_exception = ValueError("test error")
 
-    with pytest.raises(ValueError):
-        with call:
-            raise test_exception
+    with pytest.raises(ValueError), call:
+        raise test_exception
 
     assert call.exception == test_exception
     assert call.start_time is not None
@@ -189,7 +188,7 @@ def test_noop_tracer_context_propagation():
     token = current_trace_context.set(initial_context)
 
     try:
-        with tracer.start_call("test", {}) as call:
+        with tracer.start_call("test", {}):
             # Should propagate parent context
             current_ctx = current_trace_context.get()
             assert current_ctx is not None
@@ -217,7 +216,7 @@ def test_noop_tracer_inherits_parent_context():
     token = current_trace_context.set(parent_context)
 
     try:
-        with tracer.start_call("test", {}) as call:
+        with tracer.start_call("test", {}):
             current_ctx = current_trace_context.get()
             assert current_ctx.trace_id == "parent_trace"
             assert current_ctx.parent_id == "parent_call"
@@ -232,7 +231,7 @@ def test_noop_tracer_generates_new_ids():
     # Clear any existing context
     current_trace_context.set(None)
 
-    with tracer.start_call("test", {}) as call:
+    with tracer.start_call("test", {}):
         current_ctx = current_trace_context.get()
         assert current_ctx.call_id is not None
         # No parent, so no trace_id
@@ -261,9 +260,8 @@ def test_console_tracer_indentation(capsys):
     """Test ConsoleTracer properly indents nested calls."""
     tracer = ConsoleTracer()
 
-    with tracer.start_call("parent", {}) as parent_call:
-        with tracer.start_call("child", {}) as child_call:
-            pass
+    with tracer.start_call("parent", {}), tracer.start_call("child", {}):
+        pass
 
     captured = capsys.readouterr()
     lines = captured.out.strip().split("\n")
@@ -282,9 +280,8 @@ def test_console_tracer_exception_handling(capsys):
     """Test ConsoleTracer properly logs exceptions."""
     tracer = ConsoleTracer()
 
-    with pytest.raises(ValueError):
-        with tracer.start_call("failing_operation", {}) as call:
-            raise ValueError("test error")
+    with pytest.raises(ValueError), tracer.start_call("failing_operation", {}):
+        raise ValueError("test error")
 
     captured = capsys.readouterr()
     assert "Exception: test error" in captured.out
@@ -294,10 +291,10 @@ def test_console_tracer_context_propagation():
     """Test ConsoleTracer properly propagates context."""
     tracer = ConsoleTracer()
 
-    with tracer.start_call("outer", {}) as outer_call:
+    with tracer.start_call("outer", {}):
         outer_context = current_trace_context.get()
 
-        with tracer.start_call("inner", {}) as inner_call:
+        with tracer.start_call("inner", {}):
             inner_context = current_trace_context.get()
 
             # Inner should have outer as parent
@@ -309,7 +306,7 @@ def test_console_tracer_duration_tracking(capsys):
     """Test ConsoleTracer includes duration in output."""
     tracer = ConsoleTracer()
 
-    with tracer.start_call("timed_operation", {}) as call:
+    with tracer.start_call("timed_operation", {}):
         time.sleep(0.01)
 
     captured = capsys.readouterr()
@@ -321,10 +318,12 @@ def test_console_tracer_nested_calls(capsys):
     """Test ConsoleTracer handles deeply nested calls."""
     tracer = ConsoleTracer()
 
-    with tracer.start_call("level1", {}) as call1:
-        with tracer.start_call("level2", {}) as call2:
-            with tracer.start_call("level3", {}) as call3:
-                pass
+    with (
+        tracer.start_call("level1", {}),
+        tracer.start_call("level2", {}),
+        tracer.start_call("level3", {}),
+    ):
+        pass
 
     captured = capsys.readouterr()
     lines = captured.out.strip().split("\n")
@@ -390,7 +389,7 @@ def test_tracing_manager_context_propagation():
     token = current_trace_context.set(parent_context)
 
     try:
-        with manager.start_call("test", {}) as call:
+        with manager.start_call("test", {}):
             current_ctx = current_trace_context.get()
             assert current_ctx.trace_id == "parent_trace"
             assert current_ctx.parent_id == "parent_call"
@@ -407,9 +406,11 @@ def test_tracing_manager_exception_propagation():
 
     manager = TracingManager([mock_tracer])
 
-    with pytest.raises(ValueError, match="tracer error"):
-        with manager.start_call("test", {}):
-            pass
+    with (
+        pytest.raises(ValueError, match="tracer error"),
+        manager.start_call("test", {}),
+    ):
+        pass
 
 
 def test_tracing_manager_add_tracer():
@@ -551,7 +552,7 @@ def test_context_isolation_across_threads():
 
     def worker(thread_id):
         tracer = NoOpTracer()
-        with tracer.start_call(f"operation_{thread_id}", {}) as call:
+        with tracer.start_call(f"operation_{thread_id}", {}):
             ctx = current_trace_context.get()
             results[thread_id] = ctx.call_id
             time.sleep(0.01)  # Let other threads run
@@ -604,12 +605,12 @@ def test_nested_async_context_propagation():
     def inner_operation(operation_id):
         # Each thread should start with clean context, but ConsoleTracer
         # may share some state through its call registry
-        with tracer.start_call(f"inner_{operation_id}", {}) as call:
+        with tracer.start_call(f"inner_{operation_id}", {}):
             return current_trace_context.get()
 
     def outer_operation():
-        with tracer.start_call("outer", {}) as call:
-            outer_ctx = current_trace_context.get()
+        with tracer.start_call("outer", {}):
+            current_trace_context.get()
 
             # Run inner operations concurrently
             with ThreadPoolExecutor(max_workers=2) as executor:

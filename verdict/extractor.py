@@ -3,8 +3,9 @@ import random
 import re
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, Union
+from typing import Any
 
 from loguru._logger import Logger
 from pydantic import BaseModel
@@ -41,7 +42,7 @@ class Extractor(ABC):
         3. having a second LLM extract from a raw response string
     """
 
-    response_schema: Type[Schema]
+    response_schema: type[Schema]
     streaming: bool = False
 
     @abstractmethod
@@ -50,7 +51,7 @@ class Extractor(ABC):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Union[Schema, Iterator[Schema]], Usage]:
+    ) -> tuple[Schema | Iterator[Schema], Usage]:
         pass
 
     def inject(self, unit) -> None:
@@ -76,8 +77,8 @@ class StructuredOutputExtractor(Extractor):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Union[Schema, Iterator[Schema]], Usage]:
-        assert getattr(self, "response_schema") is not None, (
+    ) -> tuple[Schema | Iterator[Schema], Usage]:
+        assert self.response_schema is not None, (
             "StructuredOutputExtractor.response_schema must be set before calling extract()"
         )
         response = client_wrapper.function_calling_client(
@@ -131,7 +132,7 @@ class RawExtractor(Extractor):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Union[Schema, Iterator[Schema]], Usage]:
+    ) -> tuple[Schema | Iterator[Schema], Usage]:
         output = client_wrapper.raw_client(
             logger=logger,
             messages=(
@@ -180,7 +181,7 @@ class CustomExtractor(RawExtractor, ABC):
         self.response_schema = Schema.inline(**{self.field_name: str})
 
     @abstractmethod
-    def post_extract(self, output: str, logger: Logger) -> Dict[str, Any]:
+    def post_extract(self, output: str, logger: Logger) -> dict[str, Any]:
         pass
 
     def extract(
@@ -188,7 +189,7 @@ class CustomExtractor(RawExtractor, ABC):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Schema, Usage]:
+    ) -> tuple[Schema, Usage]:
         output, usage = super().extract(client_wrapper, prompt_message, logger)
         logger.debug(
             f"CustomExtractor {self.__class__.__name__} received output: {output.escape()}"
@@ -214,24 +215,24 @@ class CustomExtractor(RawExtractor, ABC):
 
 
 class RegexExtractor(CustomExtractor):
-    fields: Dict[str, re.Pattern]
+    fields: dict[str, re.Pattern]
 
     FIRST_INT = r"[+-]?\d+"
     FIRST_FLOAT = r"[+-]?\d+(\.\d+)?"
 
-    def __init__(self, fields: Dict[str, str]) -> None:
+    def __init__(self, fields: dict[str, str]) -> None:
         self.fields = {field: re.compile(pattern) for field, pattern in fields.items()}
 
-    def post_extract(self, output: str, logger: Logger) -> Dict[str, Any]:
-        matches: Dict[str, Any] = {}
-        for field in self.original_response_schema.model_fields.keys():
+    def post_extract(self, output: str, logger: Logger) -> dict[str, Any]:
+        matches: dict[str, Any] = {}
+        for field in self.original_response_schema.model_fields:
             match = (pattern := self.fields[field]).search(output)
             if match:
                 match_str = match.group()
                 logger.debug(
                     f"Found match {match_str} for field '{field}' with pattern '{pattern}'"
                 )
-                _type: Optional[Type] = self.original_response_schema.model_fields[
+                _type: type | None = self.original_response_schema.model_fields[
                     field
                 ].annotation
                 if _type is None:
@@ -259,12 +260,12 @@ class RegexExtractor(CustomExtractor):
 
 
 class PostHocExtractor(StructuredOutputExtractor):
-    model_selection_policy: Optional[ModelSelectionPolicy] = None
-    extract_client_wrappers: Optional[List[ClientWrapper]] = None
+    model_selection_policy: ModelSelectionPolicy | None = None
+    extract_client_wrappers: list[ClientWrapper] | None = None
 
     def __init__(
         self,
-        policy_or_name: Optional[Union[str, Model, List[Union[str, Model]]]] = None,
+        policy_or_name: str | Model | list[str | Model] | None = None,
         retries: int = 1,
         **inference_parameters,
     ) -> None:
@@ -285,7 +286,7 @@ class PostHocExtractor(StructuredOutputExtractor):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Union[Schema, Iterator[Schema]], Usage]:
+    ) -> tuple[Schema | Iterator[Schema], Usage]:
         self.raw_extractor.field_name = "output"
         self.raw_extractor.response_schema = Schema.inline(output=str)
         raw_response, raw_usage = self.raw_extractor.extract(
@@ -328,7 +329,7 @@ Raw response:
                     logger,
                 )  # type: ignore
                 logger.info("PostHoc inference call succeeded")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - retry with the next client
                 logger.error(f"PostHoc inference call failed: {e}. Retrying...")
                 continue
             finally:
@@ -361,7 +362,7 @@ class TokenProbabilityExtractor(Extractor):
         assert len(model_fields) == 1, (
             f"{self.__class__.__name__} only supports a single output field"
         )
-        [(self.field_name, field_info)] = model_fields.items()
+        [(self.field_name, _)] = model_fields.items()
 
         self.response_schema = Schema.inline(**{self.field_name: self.scale.T})
 
@@ -378,7 +379,7 @@ class TokenProbabilityExtractor(Extractor):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Schema, Usage]:
+    ) -> tuple[Schema, Usage]:
         assert self.scale is not None, (
             "TokenProbabilityExtractor.scale must be set before calling extract()"
         )
@@ -409,7 +410,7 @@ class TokenProbabilityExtractor(Extractor):
             out_tokens=response.usage.completion_tokens,
         )
 
-        distribution: Dict[Any, float] = defaultdict(float)
+        distribution: dict[Any, float] = defaultdict(float)
         if hasattr(choice := response.choices[0], "logprobs"):
             logprobs = choice.logprobs
             logger.debug(
@@ -446,7 +447,7 @@ Switch to a different model provider or to a non-TokenProbabilityExtractor.""")
         logger.debug(
             f"TokenProbabilityExtractor {self.__class__.__name__} received distribution over token support: {distribution}"
         )
-        return Schema.inline(distribution=Dict[self.scale.T, float])(
+        return Schema.inline(distribution=dict[self.scale.T, float])(
             distribution=distribution
         ), usage  # type: ignore
 
@@ -462,7 +463,7 @@ class ArgmaxScoreExtractor(TokenProbabilityExtractor):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Schema, Usage]:
+    ) -> tuple[Schema, Usage]:
         response, usage = super().extract(client_wrapper, prompt_message, logger)
         token_probability_distribution = response.distribution  # type: ignore[attr-defined]
 
@@ -476,7 +477,7 @@ class SampleScoreExtractor(TokenProbabilityExtractor):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Schema, Usage]:
+    ) -> tuple[Schema, Usage]:
         response, usage = super().extract(client_wrapper, prompt_message, logger)
         token_probability_distribution = response.distribution  # type: ignore[attr-defined]
 
@@ -504,7 +505,7 @@ class WeightedSummedScoreExtractor(TokenProbabilityExtractor):
         client_wrapper: ClientWrapper,
         prompt_message: PromptMessage,
         logger: Logger,
-    ) -> Tuple[Schema, Usage]:
+    ) -> tuple[Schema, Usage]:
         response, usage = super().extract(client_wrapper, prompt_message, logger)
         token_probability_distribution = response.distribution  # type: ignore[attr-defined]
 

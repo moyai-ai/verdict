@@ -5,8 +5,9 @@ import re
 import signal
 import sys
 import threading
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, Optional, Type
+from typing import Any
 
 
 def is_signal_safe():
@@ -29,10 +30,7 @@ def is_signal_safe():
         return False
 
     # Check if the interpreter is shutting down
-    if sys is None or threading is None:
-        return False
-
-    return True
+    return not (sys is None or threading is None)
 
 
 def keyboard_interrupt_safe(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
@@ -59,7 +57,7 @@ def keyboard_interrupt_safe(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
 class DisableLogger:
     def __init__(self, logger_name: str, all: bool = False) -> None:
         self.logger = logging.getLogger(logger_name)
-        self.previous_level: Optional[int] = None
+        self.previous_level: int | None = None
         self.all = all
 
     def __enter__(self) -> None:
@@ -73,7 +71,7 @@ class DisableLogger:
         self.logger.setLevel(self.previous_level)  # type: ignore
 
 
-def lightweight(cls: Type) -> Type:
+def lightweight(cls: type) -> type:
     cls.lightweight = True
     return cls
 

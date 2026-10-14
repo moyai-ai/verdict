@@ -1,5 +1,4 @@
 import string
-from typing import List, Optional
 
 from verdict.core.primitive import Unit
 from verdict.scale import DiscreteScale
@@ -11,18 +10,18 @@ class RankerUnit(Unit):
 
     class InputSchema(Schema):
         # need a sentinel for empty, but using [''] for now makes type inference simple
-        options: List[str] = Field(default=[""])
+        options: list[str] = Field(default=[""])
 
     class ResponseSchema(Schema):
-        ranking: List[str]
+        ranking: list[str]
 
     class OutputSchema(Schema):
-        ranked_options: List[str]
+        ranked_options: list[str]
 
     def __init__(
         self,
         k: int = 3,
-        options: Optional[DiscreteScale] = None,
+        options: DiscreteScale | None = None,
         explanation: bool = False,
         original: bool = False,
         **kwargs,

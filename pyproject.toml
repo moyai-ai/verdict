@@ -50,9 +50,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff",
+    "ruff>=0.17",
     "isort",
-    "mypy",
+    "mypy>=2.4",
     "pytest",
 
     # docs

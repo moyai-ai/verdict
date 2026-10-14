@@ -1,7 +1,8 @@
 import inspect
+import types
 from abc import ABC
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_args
+from typing import Any, Union, get_args, get_origin
 
 from loguru._logger import Logger
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
@@ -14,7 +15,7 @@ from verdict.util.misc import shorten_string
 
 class Schema(BaseModel, ABC):
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-    _scales: Dict[str, Scale] = PrivateAttr(default_factory=dict)
+    _scales: dict[str, Scale] = PrivateAttr(default_factory=dict)
 
     @classmethod
     def get_scale(cls, field_name: str) -> Scale:
@@ -70,24 +71,24 @@ class ResponseSchema(Schema):
         # Handle List-like objects
         if isinstance(obj, list) and obj:
             elem_type = Schema.infer_pydantic_annotation(obj[0])
-            return List[elem_type]
+            return list[elem_type]
 
         # Handle Tuple-like objects
         if isinstance(obj, tuple) and obj:
             elem_types = tuple(Schema.infer_pydantic_annotation(e) for e in obj)
-            return Tuple[elem_types]
+            return tuple[elem_types]
 
         # Handle Dict-like objects
         if isinstance(obj, dict) and obj:
             key_type = Schema.infer_pydantic_annotation(next(iter(obj.keys())))
             value_type = Schema.infer_pydantic_annotation(next(iter(obj.values())))
-            return Dict[key_type, value_type]
+            return dict[key_type, value_type]
 
         # Default: Return the object's direct type
         return obj_type
 
     @staticmethod
-    def infer(**kwargs) -> Type["Schema"]:
+    def infer(**kwargs) -> type["Schema"]:
         # Schema.infer(score=5) -> BaseModel(score=int)
         return type(
             "InferredSchema",
@@ -123,7 +124,7 @@ class ResponseSchema(Schema):
         )(**kwargs)
 
     @staticmethod
-    def inline(**kwargs) -> Type["Schema"]:
+    def inline(**kwargs) -> type["Schema"]:
         # Schema.inline(score=int) -> BaseModel(score=int)
         return type(
             "InlineSchema",
@@ -159,7 +160,7 @@ class ResponseSchema(Schema):
         return self.__str__()
 
     @classmethod
-    def append(cls, **kwargs) -> Type["Schema"]:
+    def append(cls, **kwargs) -> type["Schema"]:
         model_fields = {
             **{
                 field_name: (field_info.annotation, Field(...))
@@ -184,7 +185,7 @@ class ResponseSchema(Schema):
         )(**{**self.model_dump(), **kwargs})
 
     @classmethod
-    def prepend(cls, **kwargs) -> Type["Schema"]:
+    def prepend(cls, **kwargs) -> type["Schema"]:
         model_fields = {
             **{
                 field_name: (t if isinstance(t, tuple) else (t, Field(...)))
@@ -216,7 +217,7 @@ class ResponseSchema(Schema):
         return shorten_string(representation)
 
     def conform(
-        self, expected: Type["Schema"], logger: Optional[Logger] = None
+        self, expected: type["Schema"], logger: Logger | None = None
     ) -> "Schema":
         """
         Conform the current schema to the expected schema.
@@ -302,12 +303,12 @@ class ResponseSchema(Schema):
 
     @staticmethod
     def generate_key(field_info: FieldInfo) -> str:
-        def remove_optional(typ: Type) -> Type:
-            if hasattr(typ, "__origin__") and typ.__origin__ is Union:
+        def remove_optional(typ: type) -> type:
+            if get_origin(typ) in (Union, types.UnionType):
                 args = tuple(arg for arg in get_args(typ) if arg is not type(None))
                 if len(args) == 1:
                     return args[0]
-                return Union[args]
+                return Union[args]  # noqa: UP007 - args is a runtime tuple
             return typ
 
         ATTRIBUTES_FOR_EQUIVALENCE = [
@@ -326,16 +327,16 @@ class ResponseSchema(Schema):
             f"{k}={v}"
             for k, v in zip(
                 ATTRIBUTES_FOR_EQUIVALENCE,
-                map(
-                    lambda attr: getattr(field_info, attr, None),
-                    ATTRIBUTES_FOR_EQUIVALENCE,
+                (
+                    getattr(field_info, attr, None)
+                    for attr in ATTRIBUTES_FOR_EQUIVALENCE
                 ),
             )
         ]
         return str(hash(",".join(keys)))
 
     @classmethod
-    def _fieldinfo_lookup(cls) -> Dict[str, Type]:
+    def _fieldinfo_lookup(cls) -> dict[str, type]:
         lookup = defaultdict(list)
         for field_name, field_info in cls.model_fields.items():
             lookup[Schema.generate_key(field_info)].append((field_name, field_info))

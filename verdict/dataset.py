@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 import dill  # type: ignore[import-untyped]
 from typing_extensions import Self
@@ -9,26 +10,30 @@ from typing_extensions import Self
 from verdict.schema import Schema
 from verdict.util.exceptions import ConfigurationError
 
-InputFn = Callable[[Dict[str, Any]], Schema]
+if TYPE_CHECKING:
+    import pandas as pd
+    from datasets import Dataset
+
+InputFn = Callable[[dict[str, Any]], Schema]
 
 
-class DatasetWrapper(Iterator[Tuple[Dict[str, Any], Schema]]):
-    dataset: "pd.DataFrame"  # type: ignore
-    samples: "pd.DataFrame"  # type: ignore
+class DatasetWrapper(Iterator[tuple[dict[str, Any], Schema]]):
+    dataset: pd.DataFrame  # type: ignore
+    samples: pd.DataFrame  # type: ignore
 
-    max_samples: Optional[int]
+    max_samples: int | None
 
     input_fn: InputFn
 
-    _iter: Optional[Iterator[Tuple[Dict[str, Any], Schema]]] = None
+    _iter: Iterator[tuple[dict[str, Any], Schema]] | None = None
     _count: int = 0
 
     def __init__(
         self,
-        dataset: "Dataset",  # type: ignore
-        input_fn: Optional[InputFn] = None,
-        columns: Optional[List[str]] = None,
-        max_samples: Optional[int] = None,
+        dataset: Dataset,  # type: ignore
+        input_fn: InputFn | None = None,
+        columns: list[str] | None = None,
+        max_samples: int | None = None,
     ):
         import pandas as pd
 
@@ -66,7 +71,7 @@ class DatasetWrapper(Iterator[Tuple[Dict[str, Any], Schema]]):
         self._count = 0
         return self
 
-    def __next__(self) -> Tuple[Dict[str, Any], Schema]:
+    def __next__(self) -> tuple[dict[str, Any], Schema]:
         if self._iter is None:
             raise StopIteration
 
@@ -85,18 +90,18 @@ class DatasetWrapper(Iterator[Tuple[Dict[str, Any], Schema]]):
             dill.dump(self, f)
 
     @staticmethod
-    def load(path: Path) -> "DatasetWrapper":
+    def load(path: Path) -> DatasetWrapper:
         with open(path, "rb") as f:
             return dill.load(f)
 
     @staticmethod
     def from_hf(
-        dataset: Dict[str, "Dataset"],  # type: ignore
-        input_fn: Optional[InputFn] = None,
-        columns: Optional[List[str]] = None,
-        max_samples: Optional[int] = None,
+        dataset: dict[str, Dataset],  # type: ignore
+        input_fn: InputFn | None = None,
+        columns: list[str] | None = None,
+        max_samples: int | None = None,
         expand: bool = False,
-    ) -> Dict[str, "DatasetWrapper"]:
+    ) -> dict[str, DatasetWrapper]:
         from datasets import Dataset  # type: ignore[import-untyped]
 
         def expand_dataset(dataset: Dataset) -> Dataset:
@@ -133,11 +138,11 @@ class DatasetWrapper(Iterator[Tuple[Dict[str, Any], Schema]]):
 
     @staticmethod
     def from_pandas(
-        df: "pd.DataFrame",  # type: ignore
-        input_fn: Optional[InputFn] = None,
-        columns: Optional[List[str]] = None,
-        split_column: Optional[str] = None,
-        max_samples: Optional[int] = None,
+        df: pd.DataFrame,  # type: ignore
+        input_fn: InputFn | None = None,
+        columns: list[str] | None = None,
+        split_column: str | None = None,
+        max_samples: int | None = None,
     ):
         from datasets import Dataset  # type: ignore[import-untyped]
 

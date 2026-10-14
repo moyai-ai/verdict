@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING
 
 import rich.console
 import rich.layout
@@ -28,17 +28,20 @@ from verdict.util.tracing import (
     ensure_tracing_manager,
 )
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 class Pipeline:
     name: str
     block: Block
     executor: GraphExecutor
-    default_tracer: Optional[Union[Tracer, List[Tracer]]]
+    default_tracer: Tracer | list[Tracer] | None
 
     def __init__(
         self,
         name: str = "Pipeline",
-        tracer: Optional[Union[Tracer, List[Tracer]]] = None,
+        tracer: Tracer | list[Tracer] | None = None,
     ) -> None:
         """
         Initialize a Pipeline.
@@ -61,18 +64,18 @@ class Pipeline:
         """
         self.default_tracer.add_tracer(tracer)
 
-    def copy(self) -> "Pipeline":
+    def copy(self) -> Pipeline:
         pipeline = Pipeline(self.name, tracer=self.tracer)
         pipeline.block = self.block.copy()
         return pipeline
 
-    def __rshift__(self, other: Union[Unit, Layer, "Block"]) -> Self:
+    def __rshift__(self, other: Unit | Layer | Block) -> Self:
         self.block >>= other
         return self
 
     def via(
         self,
-        policy_or_name: Union[ModelSelectionPolicy, str],
+        policy_or_name: ModelSelectionPolicy | str,
         retries: int = 1,
         **inference_parameters,
     ) -> Self:
@@ -81,9 +84,9 @@ class Pipeline:
 
     def collect_outputs(
         self, executor: GraphExecutor, block_instance: Block
-    ) -> Tuple[Dict[str, Schema], List[str]]:
-        leaf_node_prefixes: List[str] = []
-        outputs: Dict[str, Schema] = {}
+    ) -> tuple[dict[str, Schema], list[str]]:
+        leaf_node_prefixes: list[str] = []
+        outputs: dict[str, Schema] = {}
 
         for node in block_instance.nodes:
             try:
@@ -107,17 +110,17 @@ class Pipeline:
                     f"Error collecting outputs for node {node} with outputs {executor.outputs[node]}"
                 ) from e  # type: ignore
 
-        return outputs, sorted(list(leaf_node_prefixes))
+        return outputs, sorted(leaf_node_prefixes)
 
     @keyboard_interrupt_safe
     def run(
         self,
-        input_data: Schema = Schema.empty(),
+        input_data: Schema | None = None,
         max_workers: int = 128,
         display: bool = False,
         graceful: bool = False,
-        tracers: Optional[Union[Tracer, List[Tracer]]] = None,
-    ) -> Tuple[Dict[str, Schema], List[str]]:
+        tracers: Tracer | list[Tracer] | None = None,
+    ) -> tuple[dict[str, Schema], list[str]]:
         """
         Run the pipeline.
 
@@ -131,6 +134,9 @@ class Pipeline:
         Returns:
             Tuple of outputs and leaf node prefixes.
         """
+        if input_data is None:
+            input_data = Schema.empty()
+
         self.block = self.block.copy()
         init_logger(self.name)
         logger.info(f"Starting pipeline {self.name}")
@@ -211,8 +217,8 @@ class Pipeline:
         experiment_config=None,
         display: bool = False,
         graceful: bool = False,
-        tracers: Optional[Union[Tracer, List[Tracer]]] = None,
-    ) -> Tuple["pd.DataFrame", List[str]]:
+        tracers: Tracer | list[Tracer] | None = None,
+    ) -> tuple[pd.DataFrame, list[str]]:
         """
         Run the pipeline on a dataset.
 
@@ -242,121 +248,119 @@ class Pipeline:
         )
 
         dataset_df = dataset.samples.copy()
-        with execution_context.trace_call(
-            name=f"{getattr(self, 'name', None) or self.__class__.__name__}",
-            inputs={
-                "dataset": dataset_df,
-                "max_workers": max_workers,
-                "experiment_config": experiment_config,
-                "display": display,
-                "graceful": graceful,
-            },
-        ) as call:
-            with (
-                rich.live.Live(auto_refresh=True) if display else nullcontext()
-            ) as live:  # type: ignore
-                block_instances: Dict[str, Block] = {}
+        with (
+            execution_context.trace_call(
+                name=f"{getattr(self, 'name', None) or self.__class__.__name__}",
+                inputs={
+                    "dataset": dataset_df,
+                    "max_workers": max_workers,
+                    "experiment_config": experiment_config,
+                    "display": display,
+                    "graceful": graceful,
+                },
+            ) as call,
+            rich.live.Live(auto_refresh=True) if display else nullcontext() as live,
+        ):  # type: ignore
+            block_instances: dict[str, Block] = {}
 
-                context = MaterializationContext(n_instances=len(dataset))
-                if display:
-                    context.parent_branch = rich.tree.Tree(self.name)
-                    context.streaming_layout_manager = StreamingLayoutManager(
-                        rich.layout.Layout()
-                    )
+            context = MaterializationContext(n_instances=len(dataset))
+            if display:
+                context.parent_branch = rich.tree.Tree(self.name)
+                context.streaming_layout_manager = StreamingLayoutManager(
+                    rich.layout.Layout()
+                )
 
-                    execution_layout = rich.layout.Layout(name="execution")
-                    execution_tree_layout = rich.layout.Layout(
-                        rich.panel.Panel(context.parent_branch, title="Execution Tree"),
-                        ratio=1,
-                        name="execution",
-                    )
-                    if experiment_config:
-                        from verdict.util.experiment import get_experiment_layout
-
-                        execution_layout.split_column(
-                            get_experiment_layout(dataset_df, experiment_config),
-                            execution_tree_layout,
-                        )
-                    else:
-                        execution_layout.add_split(execution_tree_layout)
-
-                    layout = rich.layout.Layout()
-                    layout.split_row(
-                        execution_layout,
-                        rich.layout.Layout(
-                            rich.panel.Panel(
-                                context.streaming_layout_manager.layout,
-                                title="Streaming",
-                            ),
-                            name="streaming",
-                        ),
-                    )
-
-                    live.update(layout)  # type: ignore
-
-                prototype, _ = self.block._materialize(context)
-
-                for idx, (row, input_data) in enumerate(dataset):
-                    block_instance = block_instances[row["hash(row)"]] = (
-                        prototype.clone()
-                    )
-                    block_instance.source_input = input_data
-                    block_instance.executor = self.executor
-
-                    self.executor.submit(
-                        block_instance.root_nodes,
-                        input_data,
-                        trace_id=execution_context.trace_id,
-                        parent_id=call.call_id
-                        if call is not None
-                        else execution_context.call_id,
-                    )  # type: ignore
-
-                self.executor.wait_for_completion(graceful=graceful)
-
-                output = []
-                leaf_node_prefixes = set()
-                for row_id, block_instance in block_instances.items():
-                    row_output = {"hash(row)": row_id}
-                    outputs, _leaf_node_prefixes = self.collect_outputs(
-                        self.executor, block_instance
-                    )
-
-                    row_output.update(outputs)
-                    leaf_node_prefixes.update(_leaf_node_prefixes)
-
-                    if len(row_output) > 1:
-                        output.append(row_output)
-
-                if len(output) > 0:
-                    import pandas as pd
-
-                    result_df = pd.merge(
-                        dataset_df, pd.DataFrame(output), on="hash(row)", how="right"
-                    ).drop(columns=["hash(row)"])
-                else:
-                    result_df = dataset_df
-
-                if display and experiment_config:
+                execution_layout = rich.layout.Layout(name="execution")
+                execution_tree_layout = rich.layout.Layout(
+                    rich.panel.Panel(context.parent_branch, title="Execution Tree"),
+                    ratio=1,
+                    name="execution",
+                )
+                if experiment_config:
                     from verdict.util.experiment import get_experiment_layout
 
-                    execution_layout["experiment"].update(
-                        get_experiment_layout(result_df, experiment_config)
+                    execution_layout.split_column(
+                        get_experiment_layout(dataset_df, experiment_config),
+                        execution_tree_layout,
                     )
-                    live.refresh()  # type: ignore
+                else:
+                    execution_layout.add_split(execution_tree_layout)
 
-                return result_df, sorted(list(leaf_node_prefixes))
+                layout = rich.layout.Layout()
+                layout.split_row(
+                    execution_layout,
+                    rich.layout.Layout(
+                        rich.panel.Panel(
+                            context.streaming_layout_manager.layout,
+                            title="Streaming",
+                        ),
+                        name="streaming",
+                    ),
+                )
+
+                live.update(layout)  # type: ignore
+
+            prototype, _ = self.block._materialize(context)
+
+            for idx, (row, input_data) in enumerate(dataset):
+                block_instance = block_instances[row["hash(row)"]] = prototype.clone()
+                block_instance.source_input = input_data
+                block_instance.executor = self.executor
+
+                self.executor.submit(
+                    block_instance.root_nodes,
+                    input_data,
+                    trace_id=execution_context.trace_id,
+                    parent_id=call.call_id
+                    if call is not None
+                    else execution_context.call_id,
+                )  # type: ignore
+
+            self.executor.wait_for_completion(graceful=graceful)
+
+            output = []
+            leaf_node_prefixes = set()
+            for row_id, block_instance in block_instances.items():
+                row_output = {"hash(row)": row_id}
+                outputs, _leaf_node_prefixes = self.collect_outputs(
+                    self.executor, block_instance
+                )
+
+                row_output.update(outputs)
+                leaf_node_prefixes.update(_leaf_node_prefixes)
+
+                if len(row_output) > 1:
+                    output.append(row_output)
+
+            if len(output) > 0:
+                import pandas as pd
+
+                result_df = pd.merge(
+                    dataset_df, pd.DataFrame(output), on="hash(row)", how="right"
+                ).drop(columns=["hash(row)"])
+            else:
+                result_df = dataset_df
+
+            if display and experiment_config:
+                from verdict.util.experiment import get_experiment_layout
+
+                execution_layout["experiment"].update(
+                    get_experiment_layout(result_df, experiment_config)
+                )
+                live.refresh()  # type: ignore
+
+            return result_df, sorted(leaf_node_prefixes)
 
     @keyboard_interrupt_safe
     def run_from_list(
         self,
-        dataset: List[Schema],
+        dataset: list[Schema],
         max_workers: int = 128,
         experiment_config=None,
         display: bool = False,
         graceful: bool = False,
-        tracers: Optional[Union[Tracer, List[Tracer]]] = None,
-    ) -> Tuple[Dict[str, Schema], List[str]]:
+        tracers: Tracer | list[Tracer] | None = None,
+    ) -> tuple[dict[str, Schema], list[str]]:
         """
         Run the pipeline on a list of Schemas.
 

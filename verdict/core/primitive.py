@@ -2,19 +2,14 @@ import copy
 import operator
 import time
 from abc import ABCMeta
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from enum import Enum
-from itertools import cycle
+from itertools import cycle, pairwise
 from typing import (
-    Callable,
-    Dict,
+    ClassVar,
     Generic,
-    Iterator,
-    List,
     Optional,
-    Set,
-    Tuple,
-    Type,
     TypeVar,
     Union,
     final,
@@ -35,7 +30,7 @@ import rich.tree
 from loguru._logger import Logger
 from typing_extensions import Self
 
-import verdict.config as config
+from verdict import config
 from verdict.core.executor import ExecutionState, Graph, Node, Task
 from verdict.core.synchronization import SynchronizationState, UserState
 from verdict.core.visualization import BranchManager, StreamingLayoutManager
@@ -57,12 +52,12 @@ from verdict.util.tracing import ExecutionContext
 
 
 class Previous:
-    def __init__(self, dependencies: Set["Unit"]) -> None:
+    def __init__(self, dependencies: set["Unit"]) -> None:
         self.dependencies = sorted(
-            list(dependencies), key=lambda node: getattr(node, "_ordering_timestamp", 0)
+            dependencies, key=lambda node: getattr(node, "_ordering_timestamp", 0)
         )
 
-    def __getattr__(self, key: str) -> Union[Schema, List[Schema]]:
+    def __getattr__(self, key: str) -> Schema | list[Schema]:
         # e.g., previous.score -> (previous Judge unit dependency).output.score
         if len(self.dependencies) == 1 and hasattr(
             (unit := self.dependencies[0]).output, key
@@ -74,8 +69,10 @@ class Previous:
             _type = Unit._registry[shortname]
             matches = list(
                 filter(
-                    lambda node: isinstance(node, _type)
-                    or node.__class__.__name__ == _type.__name__,
+                    lambda node: (
+                        isinstance(node, _type)
+                        or node.__class__.__name__ == _type.__name__
+                    ),
                     self.dependencies,
                 )
             )
@@ -85,7 +82,7 @@ class Previous:
                 return matches[0].output
 
             # multiple dependencies
-            return list(map(lambda unit: unit.output, matches))
+            return [unit.output for unit in matches]
         else:
             raise ConfigurationError(f"Previous {key.lower()} ({key}) not found")
 
@@ -117,9 +114,9 @@ class Propagator:
 
 
 class UnitRegistry(ABCMeta):
-    _registry: Dict[str, Type["Unit"]] = {}
+    _registry: ClassVar[dict[str, type["Unit"]]] = {}
 
-    def __new__(mcls, name, bases, namespace, **kwargs) -> Type["Unit"]:
+    def __new__(mcls, name, bases, namespace, **kwargs) -> type["Unit"]:
         klass = super().__new__(mcls, name, bases, namespace, **kwargs)
 
         if name != "Unit":
@@ -154,10 +151,10 @@ class UnitRegistry(ABCMeta):
 @dataclass
 class MaterializationContext:
     root_block: Optional["Block"] = None
-    prefix: List[str] = field(default_factory=lambda: ["root"])
+    prefix: list[str] = field(default_factory=lambda: ["root"])
 
-    parent_branch: Optional[rich.tree.Tree] = None
-    streaming_layout_manager: Optional[StreamingLayoutManager] = None
+    parent_branch: rich.tree.Tree | None = None
+    streaming_layout_manager: StreamingLayoutManager | None = None
 
     n_instances: int = 1
 
@@ -243,12 +240,12 @@ class Unit(
         return new
 
     @property
-    def description(self) -> Optional[str]:
+    def description(self) -> str | None:
         return None
 
     def _materialize(
         self, context: MaterializationContext
-    ) -> Tuple[Self, MaterializationContext]:
+    ) -> tuple[Self, MaterializationContext]:
         context.add_prefix(f"unit[{self._char}{f' {self.name}' if self.name else ''}]")
         self.prefix = context.prefix
 
@@ -292,7 +289,7 @@ class Unit(
         )
 
     def execute(
-        self, input: InputSchemaT, execution_context: Optional[ExecutionContext] = None
+        self, input: InputSchemaT, execution_context: ExecutionContext | None = None
     ) -> OutputSchemaT:
         """
         Execute the unit with tracing.
@@ -329,7 +326,7 @@ class Unit(
             if self.should_stream_output and self.streaming_layout_manager:
                 streaming_layout = self.streaming_layout_manager.add(self)
 
-            exceptions: List[Exception] = []
+            exceptions: list[Exception] = []
             for attempt_num, client in enumerate(
                 self.model_selection_policy.get_clients()
             ):
@@ -450,10 +447,10 @@ class Unit(
                         return result
                     except Exception as e:
                         raise PropagateError() from e
-                except VerdictDeclarationTimeError as e:
+                except VerdictDeclarationTimeError:
                     logger.info("User-code/configuration error detected.")
-                    raise e
-                except Exception as e:
+                    raise
+                except Exception as e:  # noqa: BLE001 - any failure falls through to the next client in the policy
                     exceptions.append(e)
                     logger.info(f"Retrying after exception encountered: {e}")
 
@@ -466,7 +463,7 @@ class Unit(
 
     def process(
         self, input: InputSchemaT, response: ResponseSchemaT
-    ) -> Union[OutputSchemaT, ResponseSchemaT]:
+    ) -> OutputSchemaT | ResponseSchemaT:
         return response
 
 
@@ -507,13 +504,13 @@ class Layer(Graph[Node], Node, ModelConfigurable):  # type: ignore
     Ordered list of units.
     """
 
-    order: List[Node]
+    order: list[Node]
 
     how_inner: LinkType.Inner
     how_outer: LinkType.Outer
 
-    root_idx: List[int]
-    leaf_idx: List[int]
+    root_idx: list[int]
+    leaf_idx: list[int]
 
     @property
     def char(self) -> str:
@@ -521,12 +518,12 @@ class Layer(Graph[Node], Node, ModelConfigurable):  # type: ignore
 
     def __init__(
         self,
-        nodes: Union[Node, List[Node]],
+        nodes: Node | list[Node],
         repeat: int = 1,
-        inner: Union[str, LinkType.Inner] = LinkType.Inner.NONE,
-        outer: Union[str, LinkType.Outer] = LinkType.Outer.DENSE,
+        inner: str | LinkType.Inner = LinkType.Inner.NONE,
+        outer: str | LinkType.Outer = LinkType.Outer.DENSE,
     ):
-        Graph.__init__(self, node_type=(Node, List[Node]))  # type: ignore
+        Graph.__init__(self, node_type=(Node, list[Node]))  # type: ignore
         Node.__init__(self)
 
         if isinstance(nodes, Node):
@@ -558,12 +555,12 @@ class Layer(Graph[Node], Node, ModelConfigurable):  # type: ignore
         if self.how_outer == LinkType.Outer.LAST:
             self.with_leaf(-1)
 
-    def sort(self) -> List[Node]:
+    def sort(self) -> list[Node]:
         return self.order
 
     def copy(self) -> Self:
         copy = type(self)(
-            list(map(lambda node: node.copy(), self.order)),
+            [node.copy() for node in self.order],
             inner=self.how_inner,
             outer=self.how_outer,
         )
@@ -573,7 +570,7 @@ class Layer(Graph[Node], Node, ModelConfigurable):  # type: ignore
 
     def clone(self) -> Self:
         clone = type(self)(
-            list(map(lambda node: node.clone(), self.order)),
+            [node.clone() for node in self.order],
             inner=self.how_inner,
             outer=self.how_outer,
         )
@@ -583,7 +580,7 @@ class Layer(Graph[Node], Node, ModelConfigurable):  # type: ignore
 
     def _materialize(
         self, context: MaterializationContext
-    ) -> Tuple[Self, MaterializationContext]:
+    ) -> tuple[Self, MaterializationContext]:
         if context.parent_branch:
             context.parent_branch = context.parent_branch.add(self.char)
 
@@ -604,7 +601,7 @@ class Layer(Graph[Node], Node, ModelConfigurable):  # type: ignore
 
                     order.append(materialized)
 
-                for previous, current in zip(order[:-1], order[1:]):
+                for previous, current in pairwise(order):
                     previous >> current
 
                 self.order = order
@@ -661,37 +658,37 @@ class Layer(Graph[Node], Node, ModelConfigurable):  # type: ignore
             for node in other.root_nodes:
                 self.link(node)  # type: ignore
 
-    def with_root(self, idx: Union[int, List[int]]) -> "Layer":
+    def with_root(self, idx: int | list[int]) -> "Layer":
         self.root_idx = [idx] if isinstance(idx, int) else idx
         return self
 
-    def with_leaf(self, idx: Union[int, List[int]]) -> "Layer":
+    def with_leaf(self, idx: int | list[int]) -> "Layer":
         self.leaf_idx = [idx] if isinstance(idx, int) else idx
         return self
 
-    def _idx_to_nodes(self, idx: List[int]) -> List[Node]:
+    def _idx_to_nodes(self, idx: list[int]) -> list[Node]:
         nodes = operator.itemgetter(*idx)(self.order)
         if not isinstance(nodes, tuple):
             nodes = (nodes,)
         return list(nodes)
 
     @property
-    def root_nodes(self) -> List[Node]:
+    def root_nodes(self) -> list[Node]:
         return self._idx_to_nodes(self.root_idx)
 
     @property
-    def leaf_nodes(self) -> List[Node]:
+    def leaf_nodes(self) -> list[Node]:
         return self._idx_to_nodes(self.leaf_idx)
 
 
-class Block(Graph[Union[Unit, Layer]], Node, ModelConfigurable):
+class Block(Graph[Unit | Layer], Node, ModelConfigurable):
     use_root: bool = True
 
     @property
     def char(self) -> str:
         return "Block"
 
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(self, name: str | None = None) -> None:
         Node.__init__(self, name)
         Graph.__init__(self, node_type=(Unit, Layer))  # type: ignore
 
@@ -733,17 +730,17 @@ class Block(Graph[Union[Unit, Layer]], Node, ModelConfigurable):
         block.use_root = True
         return block
 
-    def link(self, other: Union[Unit, Graph["Unit"]]) -> None:  # type: ignore
+    def link(self, other: Unit | Graph["Unit"]) -> None:  # type: ignore
         with self.freeze():
             for node in list(self.leaf_nodes):
                 node.link(other)  # type: ignore
 
-    def materialize(self, _context: Optional[MaterializationContext] = None) -> "Block":
+    def materialize(self, _context: MaterializationContext | None = None) -> "Block":
         return self._materialize(_context)[0]
 
     def _materialize(
-        self, _context: Optional[MaterializationContext] = None, init: bool = True
-    ) -> Tuple["Block", MaterializationContext]:
+        self, _context: MaterializationContext | None = None, init: bool = True
+    ) -> tuple["Block", MaterializationContext]:
         context: MaterializationContext = (_context or MaterializationContext()).copy()
         if init:
             return self.copy()._materialize(context, init=False)
@@ -753,11 +750,11 @@ class Block(Graph[Union[Unit, Layer]], Node, ModelConfigurable):
         if context.parent_branch:
             context.parent_branch = context.parent_branch.add("Block")
 
-        source_to_destination: Dict[Union[Unit, Layer], Union[Unit, Layer]] = {}
+        source_to_destination: dict[Unit | Layer, Unit | Layer] = {}
 
         def map_to_destination(
-            node: Union[Unit, Layer], context: MaterializationContext
-        ) -> Tuple[Union[Unit, Layer], MaterializationContext]:
+            node: Unit | Layer, context: MaterializationContext
+        ) -> tuple[Unit | Layer, MaterializationContext]:
             if node not in source_to_destination:
                 source_to_destination[node], context = node._materialize(
                     context.copy().add_prefix("block")
@@ -765,9 +762,9 @@ class Block(Graph[Union[Unit, Layer]], Node, ModelConfigurable):
 
             return source_to_destination[node], context
 
-        for source, dependents in list(
-            map(lambda node: (node, list(node.dependents)), self.sort())
-        ):
+        for source, dependents in [
+            (node, list(node.dependents)) for node in self.sort()
+        ]:
             materialized_source, source_context = map_to_destination(source, context)
             materialized_source.graph = materialized
 
@@ -776,7 +773,7 @@ class Block(Graph[Union[Unit, Layer]], Node, ModelConfigurable):
                 continue
 
             for dependent in dependents:
-                materialized_dependent, dependent_context = map_to_destination(
+                materialized_dependent, _ = map_to_destination(
                     dependent, source_context
                 )  # type: ignore
                 materialized_dependent.graph = materialized

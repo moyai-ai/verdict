@@ -5,14 +5,18 @@ Rater agreement metrics
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Union
+from typing import TYPE_CHECKING
 
 import rich.box
 import rich.console
 import rich.layout
 import rich.spinner
 import rich.table
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @dataclass
@@ -45,13 +49,13 @@ def metric(
 ) -> Callable[[Callable[..., Result]], Callable[..., Result]]:
     def decorator(func: Callable[..., Result]) -> Callable[..., Result]:
         def wrapper(*args, **kwargs) -> Result:
-            df, ground_truth_col, prediction_col = args
+            df, _, prediction_col = args
             if prediction_col not in df.columns:
                 return spinner
 
             try:
                 return Result(value=func(*args, **kwargs), percentage=percentage)
-            except Exception:
+            except Exception:  # noqa: BLE001 - a failing metric is reported as invalid
                 return Result(
                     value=Result.INVALID_RESULT_SENTINEL, percentage=percentage
                 )
@@ -62,21 +66,19 @@ def metric(
 
 
 @metric(percentage=True)
-def accuracy(df: "pd.DataFrame", ground_truth_col: str, prediction_col: str) -> Result:  # type: ignore
+def accuracy(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> Result:  # type: ignore
     return (df[ground_truth_col] == df[prediction_col]).mean()  # type: ignore
 
 
 @metric()
-def kappa(df: "pd.DataFrame", ground_truth_col: str, prediction_col: str) -> Result:  # type: ignore
+def kappa(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> Result:  # type: ignore
     from sklearn.metrics import cohen_kappa_score  # type: ignore[import-untyped]
 
     return cohen_kappa_score(df[ground_truth_col], df[prediction_col])
 
 
 @metric()
-def kendall_tau(
-    df: "pd.DataFrame", ground_truth_col: str, prediction_col: str
-) -> Result:  # type: ignore
+def kendall_tau(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> Result:  # type: ignore
     from scipy.stats import kendalltau  # type: ignore[import-untyped]
 
     return kendalltau(df[ground_truth_col], df[prediction_col]).statistic
@@ -84,7 +86,7 @@ def kendall_tau(
 
 @metric()
 def spearman_rho(
-    df: "pd.DataFrame", ground_truth_col: str, prediction_col: str
+    df: pd.DataFrame, ground_truth_col: str, prediction_col: str
 ) -> Result:  # type: ignore
     from scipy.stats import spearmanr  # type: ignore[import-untyped]
 
@@ -93,7 +95,7 @@ def spearman_rho(
 
 @metric()
 def krippendorff_alpha(
-    df: "pd.DataFrame", ground_truth_col: str, prediction_col: str
+    df: pd.DataFrame, ground_truth_col: str, prediction_col: str
 ) -> Result:  # type: ignore
     import pandas as pd
 
@@ -110,15 +112,13 @@ def krippendorff_alpha(
 
 @dataclass
 class ExperimentConfig:
-    ground_truth_cols: List[str]
-    prediction_cols: List[str]
+    ground_truth_cols: list[str]
+    prediction_cols: list[str]
 
-    pivot_cols: Optional[List[str]] = None
+    pivot_cols: list[str] | None = None
 
 
-def compute_stats_table(
-    df: "pd.DataFrame", experiment_config: ExperimentConfig
-) -> list:  # type: ignore
+def compute_stats_table(df: pd.DataFrame, experiment_config: ExperimentConfig) -> list:  # type: ignore
     """
     Compute the raw data for the stats table.
 
@@ -127,9 +127,9 @@ def compute_stats_table(
     rows = []
 
     def _get_row(
-        pivot_column: Optional[str],
-        pivot_value: Optional[str],
-        _df: "pd.DataFrame",
+        pivot_column: str | None,
+        pivot_value: str | None,
+        _df: pd.DataFrame,
         ground_truth_col: str,
         prediction_col: str,
     ) -> tuple[str, str, str, str, str, Result, Result, Result, Result]:
@@ -195,9 +195,9 @@ def format_stats_table(
 
 
 def stats(
-    df: "pd.DataFrame",
+    df: pd.DataFrame,
     experiment_config: ExperimentConfig,  # type: ignore
-) -> tuple[rich.table.Table, list[tuple[Union[str, int]]]]:
+) -> tuple[rich.table.Table, list[tuple[str | int]]]:
     """
     Compute and format the stats table.
 
@@ -208,7 +208,7 @@ def stats(
 
 
 def get_experiment_layout(
-    df: "pd.DataFrame", experiment_config: ExperimentConfig
+    df: pd.DataFrame, experiment_config: ExperimentConfig
 ) -> rich.layout.Layout:  # type: ignore
     len(
         df[experiment_config.pivot_cols].drop_duplicates()
@@ -233,9 +233,9 @@ def get_experiment_layout(
 
 
 def display_stats(
-    df: "pd.DataFrame",
+    df: pd.DataFrame,
     experiment_config: ExperimentConfig,  # type: ignore
-) -> list[tuple[Union[str, int]]]:
+) -> list[tuple[str | int]]:
     console = rich.console.Console()
     fmt_table, raw_table = stats(df, experiment_config)
     console.print(fmt_table)

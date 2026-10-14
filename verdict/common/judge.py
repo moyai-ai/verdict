@@ -1,5 +1,4 @@
 import string
-from typing import List, Optional
 
 from verdict.core.primitive import Unit
 from verdict.scale import DiscreteScale, LikertScale, Scale
@@ -16,9 +15,7 @@ class JudgeUnit(Unit):
     class ResponseSchema(Schema):
         score: Scale = LikertScale()
 
-    def __init__(
-        self, scale: Optional[Scale] = None, explanation: bool = False, **kwargs
-    ):
+    def __init__(self, scale: Scale | None = None, explanation: bool = False, **kwargs):
         if scale is not None:
             self.OutputSchema = self.ResponseSchema = Schema.infer(score=scale)  # type: ignore
 
@@ -37,7 +34,7 @@ class BestOfKJudgeUnit(Unit):
 
     class InputSchema(Schema):
         # need a sentinel for empty, but using [''] for now makes type inference simple
-        options: List[str] = Field(default=[""])
+        options: list[str] = Field(default=[""])
 
     class ResponseSchema(Schema):
         choice: DiscreteScale = DiscreteScale(["A", "B"])
@@ -48,7 +45,7 @@ class BestOfKJudgeUnit(Unit):
     def __init__(
         self,
         k: int = 2,
-        response_options: Optional[DiscreteScale] = None,
+        response_options: DiscreteScale | None = None,
         explanation: bool = False,
         original: bool = False,
         **kwargs,
@@ -104,7 +101,7 @@ class PairwiseJudgeUnit(BestOfKJudgeUnit):
 
     def __init__(
         self,
-        response_options: Optional[DiscreteScale] = None,
+        response_options: DiscreteScale | None = None,
         explanation: bool = False,
         original: bool = False,
         **kwargs,
@@ -128,7 +125,7 @@ class CategoricalJudgeUnit(BestOfKJudgeUnit):
 
     def __init__(
         self,
-        categories: Optional[DiscreteScale] = None,
+        categories: DiscreteScale | None = None,
         explanation: bool = False,
         original: bool = False,
         **kwargs,

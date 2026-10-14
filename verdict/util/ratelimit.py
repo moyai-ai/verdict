@@ -5,7 +5,7 @@ from collections import deque
 from enum import Enum
 from queue import Queue
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Protocol, Tuple, Union
+from typing import Protocol
 
 from verdict.util.exceptions import VerdictSystemError
 
@@ -37,11 +37,11 @@ class RateLimiterMetric(Enum):
 
 class RateLimiter(ABC):
     @abstractmethod
-    def acquire(self, value: Optional[int] = None) -> threading.Event:
+    def acquire(self, value: int | None = None) -> threading.Event:
         pass
 
     @abstractmethod
-    def release(self, value: Optional[int] = None) -> None:
+    def release(self, value: int | None = None) -> None:
         pass
 
     @abstractmethod
@@ -53,12 +53,12 @@ class RateLimiter(ABC):
 
 
 class UnlimitedRateLimiter(RateLimiter):
-    def acquire(self, value: Optional[int] = None) -> threading.Event:
+    def acquire(self, value: int | None = None) -> threading.Event:
         event = threading.Event()
         event.set()
         return event
 
-    def release(self, value: Optional[int] = None) -> None:
+    def release(self, value: int | None = None) -> None:
         pass
 
     def copy(self) -> "UnlimitedRateLimiter":
@@ -92,7 +92,7 @@ class ConcurrentRateLimiter(RateLimiter):
                 self.running += 1
                 event.set()
 
-    def acquire(self, value: Optional[int] = None) -> threading.Event:
+    def acquire(self, value: int | None = None) -> threading.Event:
         event = threading.Event()
         self.waiting.put(event)
 
@@ -101,7 +101,7 @@ class ConcurrentRateLimiter(RateLimiter):
 
         return event
 
-    def release(self, value: Optional[int] = None) -> None:
+    def release(self, value: int | None = None) -> None:
         with self.lock:
             self.running -= 1
             self.expire()
@@ -119,8 +119,8 @@ class TimeWindowRateLimiter(RateLimiter):
         self.smoothing_factor = smoothing_factor
 
         self.lock = threading.RLock()
-        self.values: deque[Tuple[int, float]] = deque()
-        self.waiting: deque[Tuple[threading.Event, int]] = deque()
+        self.values: deque[tuple[int, float]] = deque()
+        self.waiting: deque[tuple[threading.Event, int]] = deque()
         self._stop_event = threading.Event()
 
         # expiration thread
@@ -149,7 +149,7 @@ class TimeWindowRateLimiter(RateLimiter):
     def current_sum(self) -> int:
         return sum(value for value, _ in self.values)
 
-    def acquire(self, value: Optional[int] = None) -> threading.Event:
+    def acquire(self, value: int | None = None) -> threading.Event:
         if value is None:
             raise VerdictSystemError("Value is required for TimeWindowRateLimiter")
 
@@ -177,7 +177,7 @@ class TimeWindowRateLimiter(RateLimiter):
             else:
                 break
 
-    def release(self, value: Optional[int] = None) -> None:
+    def release(self, value: int | None = None) -> None:
         if value is None:
             raise VerdictSystemError("Value is required for TimeWindowRateLimiter")
 
@@ -197,7 +197,7 @@ class TimeWindowRateLimiter(RateLimiter):
         return f"{self.__class__.__name__}(max_value={self.max_value}, window_seconds={self.window_seconds}, smoothing_factor={self.smoothing_factor})"
 
 
-RateLimitConfig = Dict[RateLimiter, Union[str, RateLimiterMetric]]
+RateLimitConfig = dict[RateLimiter, str | RateLimiterMetric]
 
 
 class MultiEvent(Protocol):
@@ -208,7 +208,7 @@ class MultiEvent(Protocol):
 
 class RateLimitPolicy:
     # config
-    rate_limiters: Dict[RateLimiter, RateLimiterMetric]
+    rate_limiters: dict[RateLimiter, RateLimiterMetric]
 
     def __init__(self, rate_limiters: RateLimitConfig) -> None:
         self.rate_limiters = {
@@ -224,8 +224,9 @@ class RateLimitPolicy:
             }
         )
 
-    def acquire(self, values: Dict[str, int] = {}) -> MultiEvent:
-        events: List[threading.Event] = []
+    def acquire(self, values: dict[str, int] | None = None) -> MultiEvent:
+        values = values or {}
+        events: list[threading.Event] = []
         for rate_limiter, metric in self.rate_limiters.items():
             events.append(rate_limiter.acquire(values.get(metric.value, 0)))
 
@@ -234,7 +235,8 @@ class RateLimitPolicy:
             is_set=lambda: all(event.is_set() for event in events),
         )
 
-    def release(self, values: Dict[str, int] = {}) -> None:
+    def release(self, values: dict[str, int] | None = None) -> None:
+        values = values or {}
         for rate_limiter, metric in self.rate_limiters.items():
             rate_limiter.release(values.get(metric.value, 0))
 
@@ -255,9 +257,11 @@ class RateLimitPolicy:
 
     @staticmethod
     def using(
-        requests: Optional[Union[RateLimiter, List[RateLimiter]]] = [],
-        tokens: Optional[Union[RateLimiter, List[RateLimiter]]] = [],
+        requests: RateLimiter | list[RateLimiter] | None = None,
+        tokens: RateLimiter | list[RateLimiter] | None = None,
     ) -> "RateLimitPolicy":
+        requests = [] if requests is None else requests
+        tokens = [] if tokens is None else tokens
         requests = requests if isinstance(requests, list) else [requests]
         tokens = tokens if isinstance(tokens, list) else [tokens]
 

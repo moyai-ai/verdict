@@ -1,6 +1,7 @@
 import statistics
+from collections.abc import Callable
 from operator import attrgetter
-from typing import Any, Callable, List, Optional, Union
+from typing import Any
 
 from verdict.core.primitive import Unit
 from verdict.schema import Schema
@@ -14,24 +15,24 @@ class MapUnit(Unit):
     _char: str = "Map"
 
     accumulate: bool = True
-    map_func: Callable[[Union[Any, List[Any]]], Union[Any, List[Any]]]
+    map_func: Callable[[Any | list[Any]], Any | list[Any]]
 
     def __init__(
         self,
-        map_func: Callable[[Union[Any, List[Any]]], Union[Any, List[Any]]],
+        map_func: Callable[[Any | list[Any]], Any | list[Any]],
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.data.map_func = lambda x: map_func(x)
 
     class InputSchema(Schema):
-        values: Union[Any, List[Any]]
+        values: Any | list[Any]
 
     class ResponseSchema(Schema):
-        values: Union[Any, List[Any]]
+        values: Any | list[Any]
 
     def execute(
-        self, input: InputSchema, execution_context: Optional[ExecutionContext] = None
+        self, input: InputSchema, execution_context: ExecutionContext | None = None
     ) -> ResponseSchema:
         if execution_context is None:
             execution_context = ExecutionContext()
@@ -68,21 +69,23 @@ class MapUnit(Unit):
 
 
 class FieldMapUnit(MapUnit):
-    fields: List[str]
+    fields: list[str]
 
     def __init__(
         self,
-        map_func: Callable[[Union[Any, List[Any]]], Union[Any, List[Any]]],
-        fields: Union[str, List[str]],
+        map_func: Callable[[Any | list[Any]], Any | list[Any]],
+        fields: str | list[str] | None,
         **kwargs,
     ):
         super().__init__(map_func, **kwargs)
+        if fields is None:
+            fields = []
         self.fields = fields if isinstance(fields, list) else [fields]
 
     def execute(
         self,
         input: MapUnit.InputSchema,
-        execution_context: Optional[ExecutionContext] = None,
+        execution_context: ExecutionContext | None = None,
     ) -> MapUnit.ResponseSchema:
         if execution_context is None:
             execution_context = ExecutionContext()
@@ -119,23 +122,23 @@ class FieldMapUnit(MapUnit):
 
     @staticmethod
     def from_fn(
-        fn: Callable[[List[Any]], Any], name: str
-    ) -> Callable[[Union[str, List[str]]], "FieldMapUnit"]:
-        return lambda fields=[]: FieldMapUnit(fn, fields, name=name)
+        fn: Callable[[list[Any]], Any], name: str
+    ) -> Callable[[str | list[str] | None], "FieldMapUnit"]:
+        return lambda fields=None: FieldMapUnit(fn, fields, name=name)
 
 
 class MeanPoolUnit(FieldMapUnit):
-    def __init__(self, fields: Union[str, List[str]] = []):
+    def __init__(self, fields: str | list[str] | None = None):
         super().__init__(statistics.mean, fields, name="MeanPool")
 
 
 class MaxPoolUnit(FieldMapUnit):
-    def __init__(self, fields: Union[str, List[str]] = []):
+    def __init__(self, fields: str | list[str] | None = None):
         super().__init__(statistics.mode, fields, name="MaxPool")
 
 
 class MeanVariancePoolUnit(FieldMapUnit):
-    def __init__(self, fields: Union[str, List[str]] = []):
+    def __init__(self, fields: str | list[str] | None = None):
         super().__init__(
             lambda x: Schema.inline(mean=float, variance=float)(  # type: ignore
                 mean=statistics.mean(x),
@@ -148,7 +151,7 @@ class MeanVariancePoolUnit(FieldMapUnit):
 
 __all__ = [
     "MapUnit",
+    "MaxPoolUnit",
     "MeanPoolUnit",
     "MeanVariancePoolUnit",
-    "MaxPoolUnit",
 ]

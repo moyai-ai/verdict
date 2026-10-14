@@ -5,8 +5,10 @@ import re
 import string
 import textwrap
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple, Type, Union
+from types import MappingProxyType
+from typing import Any, ClassVar
 
 from loguru._logger import Logger
 from typing_extensions import Self
@@ -18,10 +20,10 @@ SECTION_REGEX = re.compile(r"@(\w+)(.*?)(?=@\w+|$)", re.DOTALL)
 
 
 class PromptRegistry(type):
-    _registry: Dict[str, Type["Prompt"]] = {}
+    _registry: ClassVar[dict[str, type["Prompt"]]] = {}
 
     @staticmethod
-    def extract_sections(template: str) -> Tuple[Optional[str], Optional[str], bool]:
+    def extract_sections(template: str) -> tuple[str | None, str | None, bool]:
         matches = SECTION_REGEX.findall(template)
 
         sections = {f"@{section}": content for section, content in matches}
@@ -48,7 +50,7 @@ class PromptRegistry(type):
         # Unindent the remaining lines and reassemble the docstring
         return "\n".join(line.lstrip() for line in lines)
 
-    def __new__(cls, name, bases, dct) -> Type["Prompt"]:
+    def __new__(cls, name, bases, dct) -> type["Prompt"]:
         klass = super().__new__(cls, name, bases, dct)
 
         # only add named classes to the registry
@@ -79,14 +81,14 @@ class PromptRegistry(type):
 
         return klass
 
-    def __getattr__(self, name: str) -> Type["Prompt"]:
+    def __getattr__(self, name: str) -> type["Prompt"]:
         if name in self._registry:
             return self._registry[name]
         else:
             raise PromptError(f"Prompt {name} not found in PromptRegistry._registry.")
 
     @staticmethod
-    def compatible_prompts(unit: Type["Promptable"]) -> List[Type["Prompt"]]:
+    def compatible_prompts(unit: type["Promptable"]) -> list[type["Prompt"]]:
         return [
             prompt
             for prompt in PromptRegistry._registry.values()
@@ -96,11 +98,11 @@ class PromptRegistry(type):
 
 @dataclass
 class PromptMessage:
-    system: Optional[str]
+    system: str | None
     user: str
-    input_schema: Optional[Schema] = None
+    input_schema: Schema | None = None
 
-    def _get_image_values(self, input_schema: Optional[Schema] = None) -> List:
+    def _get_image_values(self, input_schema: Schema | None = None) -> list:
         image_values = []
         if input_schema is None:
             return image_values
@@ -115,7 +117,7 @@ class PromptMessage:
 
     def to_messages(
         self, add_nonce: bool = False
-    ) -> List[Dict[str, str | List[Dict[str, str | Dict[str, str]]]]]:
+    ) -> list[dict[str, str | list[dict[str, str | dict[str, str]]]]]:
         nonce = (
             "".join(random.choices(string.ascii_letters, k=10)) + "\n"
             if add_nonce
@@ -142,7 +144,7 @@ class PromptMessage:
         return messages
 
 
-RESERVED_KEYS = set(["input", "unit", "previous", "source", "prompt"])
+RESERVED_KEYS = {"input", "unit", "previous", "source", "prompt"}
 
 
 class Prompt(metaclass=PromptRegistry):
@@ -154,18 +156,18 @@ class Prompt(metaclass=PromptRegistry):
     Indentation is preserved in the output.
     """
 
-    system_prompt_template: Optional[str]
+    system_prompt_template: str | None
     user_prompt_template: str
 
-    caller_locals: Dict[str, Any] = {}
+    caller_locals: Mapping[str, Any] = MappingProxyType({})
 
     @staticmethod
     def from_template(template: str) -> "Prompt":
         return type("", (Prompt,), {"__doc__": template})()
 
     @staticmethod
-    def extract_keys(template: str, exclude_reserved: bool = True) -> Set[str]:
-        def extract_variables(template: str) -> Set[str]:
+    def extract_keys(template: str, exclude_reserved: bool = True) -> set[str]:
+        def extract_variables(template: str) -> set[str]:
             variables = set()
 
             placeholder_pattern = r"(?<!\{)\{([^{}]+?)\}(?!\})"
@@ -195,7 +197,7 @@ class Prompt(metaclass=PromptRegistry):
             return extract_variables(template)
         return extract_variables(template) - RESERVED_KEYS
 
-    def get_all_keys(self) -> Set[str]:
+    def get_all_keys(self) -> set[str]:
         keys = set()
 
         if self.system_prompt_template:
@@ -208,7 +210,7 @@ class Prompt(metaclass=PromptRegistry):
         return keys
 
     @property
-    def keys(self) -> Set[str]:
+    def keys(self) -> set[str]:
         return self.get_all_keys() - RESERVED_KEYS - set(self.caller_locals.keys())
 
     def format(
@@ -217,15 +219,14 @@ class Prompt(metaclass=PromptRegistry):
         unit: "Promptable",
         previous: Any,
         source: Schema,
-        logger: Optional[Logger] = None,
+        logger: Logger | None = None,
     ) -> PromptMessage:
         for illegal_symbol in ["{{", "}}"]:
             for prompt in [self.system_prompt_template, self.user_prompt_template]:
-                if prompt is not None and illegal_symbol in prompt:
-                    if logger:
-                        logger.warning(
-                            f"Prompt contains '{illegal_symbol}'. Variable likely not getting evaluated."
-                        )
+                if prompt is not None and illegal_symbol in prompt and logger:
+                    logger.warning(
+                        f"Prompt contains '{illegal_symbol}'. Variable likely not getting evaluated."
+                    )
 
         format_kwargs = (
             {"input": input_schema}
@@ -249,7 +250,7 @@ class Prompt(metaclass=PromptRegistry):
         )
 
     @staticmethod
-    def auto_format(template: str, context: Dict[str, Any]) -> str:
+    def auto_format(template: str, context: dict[str, Any]) -> str:
         single_placeholder_pattern = r"(?<!\{)\{([^{}]+?)\}(?!\})"
         matches = re.findall(single_placeholder_pattern, template)
 
@@ -274,7 +275,7 @@ class Prompt(metaclass=PromptRegistry):
 class Promptable(ABC):
     _prompt: Prompt
 
-    def prompt(self, prompt: Union[str, Prompt]) -> Self:
+    def prompt(self, prompt: str | Prompt) -> Self:
         if isinstance(prompt, str):
             self._prompt = Prompt.from_template(prompt)
         else:

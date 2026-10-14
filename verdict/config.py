@@ -1,7 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from verdict.model import ModelSelectionPolicy
 from verdict.util.ratelimit import (
@@ -21,7 +21,7 @@ state = Config()
 
 # Defaults
 ## Rate limiting
-PROVIDER_RATE_LIMITER: Dict[str, RateLimitPolicy] = {
+PROVIDER_RATE_LIMITER: dict[str, RateLimitPolicy] = {
     "deepinfra": RateLimitPolicy(
         {ConcurrentRateLimiter(max_concurrent=200): "requests"}
     ),
@@ -60,7 +60,7 @@ Do not explain your answer. {scale_prompt}
 
 # System
 ## Logging
-DEBUG: bool = bool(os.getenv("DEBUG", False))
+DEBUG: bool = bool(os.getenv("DEBUG"))
 
 LIGHTWEIGHT_EXECUTOR_WORKER_COUNT: int = 32
 

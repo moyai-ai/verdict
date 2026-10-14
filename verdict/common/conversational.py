@@ -1,7 +1,6 @@
 import copy
 from dataclasses import dataclass
 from itertools import cycle
-from typing import List, Optional
 
 from verdict.core.primitive import Unit
 from verdict.schema import Field, Schema
@@ -24,13 +23,13 @@ class Message:
 
 
 class Conversation:
-    history: List[Message]
+    history: list[Message]
 
-    def __init__(self, history: Optional[List[Message]] = None) -> None:
+    def __init__(self, history: list[Message] | None = None) -> None:
         self.history = history or [Message("<START>", "")]
 
-    def get_roles(self) -> List[str]:
-        all_roles = list(map(lambda m: m.role_name, self.history[1:]))
+    def get_roles(self) -> list[str]:
+        all_roles = [m.role_name for m in self.history[1:]]
 
         roles = []
         seen = set()
@@ -40,7 +39,7 @@ class Conversation:
                 seen.add(role)
         return roles
 
-    def with_roles(self, roles: List[str]) -> "Conversation":
+    def with_roles(self, roles: list[str]) -> "Conversation":
         assert len(roles) == len(self.get_roles()), (
             "Number of roles must match existing role structure"
         )
@@ -85,7 +84,7 @@ class ConversationalUnit(Unit):
         self.role_name = role_name
         self.number = number
 
-    def idx(self, value: Optional[int] = None) -> int:
+    def idx(self, value: int | None = None) -> int:
         if value is not None and self.number and "#" not in self.role_name:
             self.role_name = f"{self.role_name} #{value}"
         return super().idx(value)

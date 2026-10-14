@@ -1,6 +1,5 @@
 import os
 import sys
-from typing import Optional
 
 from loguru import logger as base_logger
 
@@ -14,17 +13,16 @@ logger = base_logger.bind(thread_id="main", unit="")
 logger.remove()
 
 
-def init_logger(name: Optional[str] = None) -> None:
-    global logger
+def init_logger(name: str | None = None) -> None:
     logger.remove()
     logger.add(sys.stderr, format=VERDICT_COMPACT_LOG_FORMAT, level="CRITICAL")
 
-    if config.DEBUG or (log_level := os.getenv("LOG_LEVEL", False)):
+    if config.DEBUG or (log_level := os.getenv("LOG_LEVEL")):
         logger.add(
             sys.stderr, format=VERDICT_COMPACT_LOG_FORMAT, level=log_level or "DEBUG"
         )
 
-    if name and not os.getenv("VERDICT_NO_LOG", False):
+    if name and not os.getenv("VERDICT_NO_LOG"):
         logger.add(
             config.VERDICT_LOG_DIR / f"{name}_{{time}}.log",
             format=VERDICT_VERBOSE_LOG_FORMAT,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import threading
 from dataclasses import dataclass
-from typing import Any, List, Optional, Set
+from typing import Any
 
 from verdict.core.executor import Task
 from verdict.core.visualization import BranchManager
@@ -16,18 +16,18 @@ from verdict.util.exceptions import ConfigurationError
 class SynchronizationState:
     lock: threading.Lock
 
-    peers: Set["Task"]  # n_peers
+    peers: set[Task]  # n_peers
 
     shared: bool
     branch_lock: threading.Lock
-    branch: Optional[BranchManager]
+    branch: BranchManager | None
 
     # shared_output logic
     candidate_assigned: bool
     shared_output: threading.Condition
-    output: Optional[Schema]
+    output: Schema | None
 
-    output_tokens: List[float]
+    output_tokens: list[float]
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
@@ -44,7 +44,7 @@ class SynchronizationState:
 
         self.output_tokens = []
 
-    def add(self, peer: "Unit") -> "SynchronizationState":  # noqa: F821 # type: ignore[name-defined]
+    def add(self, peer: Unit) -> SynchronizationState:  # noqa: F821 # type: ignore[name-defined]
         with self.lock:
             self.peers.add(peer)
             self.shared = True
@@ -64,7 +64,7 @@ class UserState:
     def __setattr__(self, key: str, value: Any) -> None:
         self._dict[key] = value
 
-    def copy(self) -> "UserState":
+    def copy(self) -> UserState:
         new = UserState()
         object.__setattr__(
             new, "_dict", {k: copy.copy(v) for k, v in self._dict.items()}

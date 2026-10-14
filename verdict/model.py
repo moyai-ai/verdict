@@ -1,17 +1,11 @@
 import pprint
 import textwrap
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from typing import (
     Any,
-    Callable,
-    ContextManager,
-    Dict,
-    Iterator,
-    List,
-    Optional,
-    Tuple,
     Union,
 )
 
@@ -32,7 +26,7 @@ class Model(ABC):
     name: str
     use_nonce: bool = False  # Default value for the base class
 
-    rate_limiter: Optional[Union[RateLimitPolicy, RateLimitConfig]] = field(
+    rate_limiter: RateLimitPolicy | RateLimitConfig | None = field(
         repr=False, default=None
     )
     rate_limit: RateLimitPolicy = field(init=False, repr=True)
@@ -85,7 +79,7 @@ class ProviderModel(Model):
     name: str
     use_nonce: bool = False
 
-    rate_limiter: Optional[Union[RateLimitPolicy, RateLimitConfig]] = field(
+    rate_limiter: RateLimitPolicy | RateLimitConfig | None = field(
         repr=False, default=None
     )
     rate_limit: RateLimitPolicy = field(init=False, repr=True)
@@ -129,7 +123,7 @@ class vLLMModel(Model):
     api_key: str
     use_nonce: bool = field(init=False)
 
-    rate_limiter: Optional[Union[RateLimitPolicy, RateLimitConfig]] = field(
+    rate_limiter: RateLimitPolicy | RateLimitConfig | None = field(
         repr=False, default=None
     )
     rate_limit: RateLimitPolicy = field(init=False, repr=True)
@@ -183,7 +177,7 @@ class Client:
         return False
 
     def _has_image_content(
-        self, messages: List[Dict[str, str | List[Dict[str, str | Dict[str, str]]]]]
+        self, messages: list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
     ) -> bool:
         for message in messages:
             content = message.get("content", "")
@@ -195,7 +189,7 @@ class Client:
         return False
 
     @contextmanager
-    def defaults(self, **inference_parameters_defaults) -> ContextManager[None]:  # type: ignore
+    def defaults(self, **inference_parameters_defaults) -> AbstractContextManager[None]:  # type: ignore
         original_inference_parameters = self.inference_parameters
 
         self.inference_parameters = {
@@ -209,8 +203,8 @@ class Client:
     def __call__(
         self,
         logger: Logger,
-        messages: List[Dict[str, str]],
-        response_model: Optional[Schema] = None,
+        messages: list[dict[str, str]],
+        response_model: Schema | None = None,
         streaming: bool = False,
     ):
         from verdict import config
@@ -224,7 +218,7 @@ class Client:
         logger.debug(
             textwrap.dedent(
                 f"""
-                Preparing parameters for {repr(self.model)} with
+                Preparing parameters for {self.model!r} with
                 specified connection_parameters: {self.model.connection_parameters}
                 default inference_parameters: {config.DEFAULT_INFERENCE_PARAMS}
                 specified inference_parameters: {self.inference_parameters}
@@ -259,7 +253,7 @@ class Client:
             p: v for p, v in parameters.items() if p not in ["api_key"]
         }
         logger.debug(
-            f"Sending parameters for {repr(self.model)}:  {pprint.pformat(parameters_no_api_key, width=80, depth=3)}"
+            f"Sending parameters for {self.model!r}:  {pprint.pformat(parameters_no_api_key, width=80, depth=3)}"
         )
         return self.complete(**parameters)
 
@@ -312,7 +306,7 @@ class ClientWrapper:
                 self.inference_parameters,
             )
 
-    def encode(self, word: str) -> List[int]:
+    def encode(self, word: str) -> list[int]:
         import tokenizers  # type: ignore[import-untyped]
         from litellm import encode  # type: ignore[import-untyped]
 
@@ -333,25 +327,25 @@ class ModelSelectionPolicy:
         return str(self)
 
     def __init__(self) -> None:
-        self.client_factories: List[Callable[[], ClientWrapper]] = []
-        self.client_configs: List[Tuple[Model, int, dict]] = []
-        self.client_repeats: List[Tuple[Model, int]] = []
+        self.client_factories: list[Callable[[], ClientWrapper]] = []
+        self.client_configs: list[tuple[Model, int, dict]] = []
+        self.client_repeats: list[tuple[Model, int]] = []
 
     def __len__(self) -> int:
         return len(self.client_factories)
 
     def get_clients(self) -> Iterator[ClientWrapper]:
-        return iter(map(lambda factory: factory(), self.client_factories))
+        return (factory() for factory in self.client_factories)
 
     @staticmethod
     def from_name(
-        model: Union[str, Model], retries: int = 1, **inference_parameters
+        model: str | Model, retries: int = 1, **inference_parameters
     ) -> "ModelSelectionPolicy":
         policy = ModelSelectionPolicy()
-        for _ in range(retries):
-            if isinstance(model, str):
-                model = ProviderModel(name=model)
+        if isinstance(model, str):
+            model = ProviderModel(name=model)
 
+        for _ in range(retries):
             policy.client_factories.append(
                 lambda: ClientWrapper.from_model(model, **inference_parameters)
             )
@@ -361,7 +355,7 @@ class ModelSelectionPolicy:
         return policy
 
     @staticmethod
-    def from_names(model_names: List[Tuple[str, int, dict]]) -> "ModelSelectionPolicy":
+    def from_names(model_names: list[tuple[str, int, dict]]) -> "ModelSelectionPolicy":
         policy = ModelSelectionPolicy()
         for model_name, retries, inference_parameters in model_names:
             policy += ModelSelectionPolicy.from_name(
@@ -372,9 +366,7 @@ class ModelSelectionPolicy:
 
     @staticmethod
     def from_any(
-        policy_or_name: Union[
-            "ModelSelectionPolicy", str, Model, List[Union[str, Model]]
-        ],
+        policy_or_name: Union["ModelSelectionPolicy", str, Model, list[str | Model]],
         retries: int = 1,
         **inference_parameters,
     ) -> "ModelSelectionPolicy":
@@ -416,13 +408,11 @@ class ModelSelectionPolicy:
 
 
 class ModelConfigurable(ABC):
-    _model_selection_policy: Optional[ModelSelectionPolicy] = None
+    _model_selection_policy: ModelSelectionPolicy | None = None
 
     def via(
         self,
-        policy_or_name: Union[
-            ModelSelectionPolicy, str, Model, List[Union[str, Model]]
-        ],
+        policy_or_name: ModelSelectionPolicy | str | Model | list[str | Model],
         retries: int = 1,
         **inference_parameters,
     ) -> Self:
@@ -440,7 +430,7 @@ class ModelConfigurable(ABC):
         pass
 
     @property
-    def model_selection_policy(self) -> Optional[ModelSelectionPolicy]:
+    def model_selection_policy(self) -> ModelSelectionPolicy | None:
         return self._model_selection_policy
 
     @model_selection_policy.setter
@@ -455,4 +445,3 @@ class ModelConfigurable(ABC):
             logger.info(f"Model selection policy set to {model_selection_policy.char}")
         else:
             logger.warning("Model selection policy skipped. Already set.")
-            pass

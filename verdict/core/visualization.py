@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import threading
 from collections import defaultdict
+from collections.abc import Collection
 from types import SimpleNamespace
-from typing import Any, Collection, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import rich.layout
 import rich.panel
@@ -11,6 +12,9 @@ import rich.text
 
 from verdict.core.executor import ExecutionState
 from verdict.schema import Schema
+
+if TYPE_CHECKING:
+    from verdict.core.primitive import Unit
 
 
 class StreamingLayoutManager:
@@ -20,8 +24,8 @@ class StreamingLayoutManager:
     layouts: Collection[rich.layout.Layout]
 
     class StreamingLayout:
-        manager: "StreamingLayoutManager"
-        unit: "Unit"  # noqa: F821 # type: ignore[name-defined]
+        manager: StreamingLayoutManager
+        unit: Unit  # type: ignore[name-defined]
         order: int
 
         text: rich.text.Text
@@ -30,11 +34,11 @@ class StreamingLayoutManager:
 
         def __init__(
             self,
-            manager: "StreamingLayoutManager",
+            manager: StreamingLayoutManager,
             title: str,
-            unit: "Unit",
+            unit: Unit,
             order: int,
-        ):  # noqa: F821 # type: ignore[name-defined]
+        ):  # type: ignore[name-defined]
             self.manager = manager
             self.unit = unit
             self.order = order
@@ -86,15 +90,13 @@ class StreamingLayoutManager:
                         self.text.append(
                             "...\n"
                             + "\n".join(
-                                map(
-                                    lambda line: line.strip(" │"),
-                                    rendered_output.split("\n")[
-                                        2 + height_overflow : -3
-                                    ],
-                                )
+                                line.strip(" │")
+                                for line in rendered_output.split("\n")[
+                                    2 + height_overflow : -3
+                                ]
                             )
                         )
-            except Exception:
+            except Exception:  # noqa: BLE001 - fall back to plain text if rich rendering fails
                 self.text.plain = ""
                 self.text.append(text)
 
@@ -102,12 +104,12 @@ class StreamingLayoutManager:
         self.lock = threading.Lock()
 
         self.layout = layout
-        self.children: List[StreamingLayoutManager.StreamingLayout] = []
+        self.children: list[StreamingLayoutManager.StreamingLayout] = []
 
         self.capacity = capacity
         self.total = 0
 
-    def add(self, unit: "Unit") -> StreamingLayout:  # noqa: F821 # type: ignore[name-defined]
+    def add(self, unit: Unit) -> StreamingLayout:  # type: ignore[name-defined]
         title = f"[{unit.char}]" + (
             f" [orange_red1]{unit.name}[/orange_red1]" if unit.name else ""
         )
@@ -134,23 +136,23 @@ class StreamingLayoutManager:
 
 
 class BranchManager:
-    spinner = {
+    spinner: ClassVar[dict[ExecutionState, str]] = {
         ExecutionState.WAITING_FOR_DEPENDENCIES: "bounce",
         ExecutionState.WAITING_FOR_RESOURCES: "dots11",
         ExecutionState.RUNNING: "dots3",
     }
 
     lock: threading._RLock
-    branch: Optional[rich.tree.Tree]
+    branch: rich.tree.Tree | None
     n_peers: int
     should_pin_output: bool
 
-    visited_states: Dict[ExecutionState, int]
+    visited_states: dict[ExecutionState, int]
 
     def __init__(
         self,
         lock: threading.Lock,
-        branch: Optional[rich.tree.Tree],
+        branch: rich.tree.Tree | None,
         n_peers: int,
         should_pin_output: bool,
     ) -> None:
@@ -163,7 +165,7 @@ class BranchManager:
 
         self.visited_states = defaultdict(int)
 
-    def update(self, state: ExecutionState, unit: "Unit") -> None:  # noqa: F821 # type: ignore[name-defined]
+    def update(self, state: ExecutionState, unit: Unit) -> None:  # type: ignore[name-defined]
         from verdict.core.primitive import Unit
 
         if not self.branch:
@@ -189,7 +191,7 @@ class BranchManager:
                         rich.spinner.Spinner(BranchManager.spinner[state], text=text)
                     ]
                     if type(unit).description is not Unit.description:
-                        groups.append(f"\t{str(unit.description)}")  # type: ignore
+                        groups.append(f"\t{unit.description!s}")  # type: ignore
                     table.add_row(rich.console.Group(*groups), "")
                     self.branch = self.branch.add(table)
                 else:
@@ -231,7 +233,7 @@ class BranchManager:
                     if isinstance(unit.output, Schema):
                         unit_output = unit.output.model_dump()
                         if len(unit_output) == 1:
-                            output: Any = unit_output[list(unit_output.keys())[0]]
+                            output: Any = unit_output[next(iter(unit_output.keys()))]
                             if isinstance(output, float):
                                 output = f"{output:.4f}"
                             output_str: str = str(output).split("\n")[0]
