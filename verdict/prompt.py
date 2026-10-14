@@ -8,13 +8,17 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from loguru._logger import Logger
 from typing_extensions import Self
 
 from verdict.schema import Schema
 from verdict.util.exceptions import PromptError
+
+if TYPE_CHECKING:
+    from loguru import Logger
+else:
+    from loguru._logger import Logger
 
 SECTION_REGEX = re.compile(r"@(\w+)(.*?)(?=@\w+|$)", re.DOTALL)
 
@@ -51,7 +55,7 @@ class PromptRegistry(type):
         return "\n".join(line.lstrip() for line in lines)
 
     def __new__(cls, name, bases, dct) -> type["Prompt"]:
-        klass = super().__new__(cls, name, bases, dct)
+        klass: Any = super().__new__(cls, name, bases, dct)
 
         # only add named classes to the registry
         if name and not name.startswith("_") and name != "Prompt":
@@ -87,14 +91,6 @@ class PromptRegistry(type):
         else:
             raise PromptError(f"Prompt {name} not found in PromptRegistry._registry.")
 
-    @staticmethod
-    def compatible_prompts(unit: type["Promptable"]) -> list[type["Prompt"]]:
-        return [
-            prompt
-            for prompt in PromptRegistry._registry.values()
-            if prompt().supports(unit)
-        ]
-
 
 @dataclass
 class PromptMessage:
@@ -102,8 +98,10 @@ class PromptMessage:
     user: str
     input_schema: Schema | None = None
 
-    def _get_image_values(self, input_schema: Schema | None = None) -> list:
-        image_values = []
+    def _get_image_values(
+        self, input_schema: Schema | None = None
+    ) -> list[dict[str, Any]]:
+        image_values: list[dict[str, Any]] = []
         if input_schema is None:
             return image_values
 
@@ -115,9 +113,7 @@ class PromptMessage:
 
         return image_values
 
-    def to_messages(
-        self, add_nonce: bool = False
-    ) -> list[dict[str, str | list[dict[str, str | dict[str, str]]]]]:
+    def to_messages(self, add_nonce: bool = False) -> list[dict[str, Any]]:
         nonce = (
             "".join(random.choices(string.ascii_letters, k=10)) + "\n"
             if add_nonce
@@ -281,8 +277,9 @@ class Promptable(ABC):
         else:
             self._prompt = prompt
 
-        frame = inspect.currentframe().f_back
-        self._prompt.caller_locals = frame.f_locals
+        frame = inspect.currentframe()
+        caller = frame.f_back if frame is not None else None
+        self._prompt.caller_locals = caller.f_locals if caller is not None else {}
 
         return self
 

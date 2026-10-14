@@ -3,12 +3,15 @@ from __future__ import annotations
 import copy
 import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from verdict.core.executor import Task
 from verdict.core.visualization import BranchManager
 from verdict.schema import Schema
 from verdict.util.exceptions import ConfigurationError
+
+if TYPE_CHECKING:
+    from verdict.core.primitive import Unit
 
 
 # fresh on init/copy, shared on clone
@@ -44,7 +47,7 @@ class SynchronizationState:
 
         self.output_tokens = []
 
-    def add(self, peer: Unit) -> SynchronizationState:  # noqa: F821 # type: ignore[name-defined]
+    def add(self, peer: Unit) -> SynchronizationState:
         with self.lock:
             self.peers.add(peer)
             self.shared = True

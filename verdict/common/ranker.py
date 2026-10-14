@@ -39,16 +39,16 @@ class RankerUnit(Unit):
 
         super().__init__(**kwargs)
 
-    def validate(self, input: InputSchema, response: ResponseSchema) -> bool:
+    def validate(self, input: InputSchema, response: ResponseSchema) -> None:
         if self.original:
-            assert len(input.options) != [""], (
+            assert input.options != [""], (
                 "Pass the options in InputSchema.options to index original choices."
             )
             assert len(input.options) == self.k, (
                 f"Number of input options must equal {self.k}"
             )
 
-    def process(self, input: InputSchema, response: ResponseSchema) -> OutputSchema:
+    def process(self, input: InputSchema, response: ResponseSchema) -> Schema:
         if not self.original:
             return response
 
@@ -62,6 +62,6 @@ class RankerUnit(Unit):
         }
 
         if self.explanation:
-            fields["explanation"] = response.explanation
+            fields["explanation"] = response.explanation  # type: ignore[attr-defined]
 
         return self.OutputSchema(**fields)

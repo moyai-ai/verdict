@@ -25,7 +25,7 @@ from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from types import TracebackType
-from typing import Any
+from typing import Any, Literal
 
 from typing_extensions import Self
 
@@ -42,7 +42,7 @@ class TraceContext:
         parent_id: The call_id of the parent call, if any.
     """
 
-    trace_id: str
+    trace_id: str | None
     call_id: str
     parent_id: str | None
 
@@ -75,7 +75,7 @@ class Call:
 
     name: str
     inputs: dict[str, Any]
-    trace_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    trace_id: str | None = field(default_factory=lambda: str(uuid.uuid4()))
     call_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     parent_id: str | None = None
     outputs: Any = None
@@ -97,7 +97,7 @@ class Call:
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
         exc_tb: TracebackType | None,
-    ) -> bool:
+    ) -> Literal[False]:
         """End timing the call and record any exception."""
         self.end_time = time.time()
         if exc_val is not None:
@@ -347,7 +347,7 @@ class ExecutionContext:
         )
 
     @contextmanager
-    def trace_call(self, name: str, inputs: dict):
+    def trace_call(self, name: str, inputs: dict) -> Iterator[Call | None]:
         with self.tracer.start_call(
             name=name,
             inputs=inputs,

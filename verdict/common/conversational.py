@@ -24,6 +24,7 @@ class Message:
 
 class Conversation:
     history: list[Message]
+    _with_context: bool = False
 
     def __init__(self, history: list[Message] | None = None) -> None:
         self.history = history or [Message("<START>", "")]
@@ -54,7 +55,7 @@ class Conversation:
         return other
 
     def __str__(self) -> str:
-        starting_index = 0 if getattr(self, "_with_context", False) else 1
+        starting_index = 0 if self._with_context else 1
         return "\n\n".join(map(str, self.history[starting_index:]))
 
     def __repr__(self) -> str:

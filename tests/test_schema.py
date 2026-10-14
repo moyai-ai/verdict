@@ -18,7 +18,7 @@ def test_schema_conform():
     input_instance = SchemaA(a="test", x=42)
 
     transformed_instance = input_instance.conform(SchemaB)
-    assert set(transformed_instance.model_fields.keys()) == {
+    assert set(type(transformed_instance).model_fields.keys()) == {
         "a",
         "x",
         "y",

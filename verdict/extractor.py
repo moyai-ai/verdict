@@ -5,9 +5,8 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from loguru._logger import Logger
 from pydantic import BaseModel
 from typing_extensions import Self
 
@@ -17,6 +16,11 @@ from verdict.prompt import PromptMessage
 from verdict.scale import DiscreteScale
 from verdict.schema import Schema
 from verdict.util.exceptions import ConfigurationError, VerdictExecutionTimeError
+
+if TYPE_CHECKING:
+    from loguru import Logger
+else:
+    from loguru._logger import Logger
 
 
 @dataclass
@@ -151,11 +155,13 @@ class RawExtractor(Extractor):
                 chunks.append(chunk)
                 yield self.response_schema(
                     **{
-                        self.field_name: stream_chunk_builder(chunks, messages=messages)
+                        self.field_name: stream_chunk_builder(  # type: ignore[union-attr]
+                            chunks, messages=messages
+                        )
                         .choices[0]
                         .message.content
                     }
-                )  # type: ignore
+                )
 
         if isinstance(output, Iterator):
             return streaming_extract(output, messages), Usage.unknown()
@@ -192,7 +198,7 @@ class CustomExtractor(RawExtractor, ABC):
     ) -> tuple[Schema, Usage]:
         output, usage = super().extract(client_wrapper, prompt_message, logger)
         logger.debug(
-            f"CustomExtractor {self.__class__.__name__} received output: {output.escape()}"
+            f"CustomExtractor {self.__class__.__name__} received output: {output.escape()}"  # type: ignore[union-attr]
         )
 
         extracted = self.post_extract(output.output, logger)  # type: ignore
@@ -232,7 +238,7 @@ class RegexExtractor(CustomExtractor):
                 logger.debug(
                     f"Found match {match_str} for field '{field}' with pattern '{pattern}'"
                 )
-                _type: type | None = self.original_response_schema.model_fields[
+                _type: Any = self.original_response_schema.model_fields[
                     field
                 ].annotation
                 if _type is None:
@@ -315,6 +321,7 @@ class PostHocExtractor(StructuredOutputExtractor):
             ready.wait()
             logger.debug(f"Acquired rate limit for {extract_client_wrapper.model}")
 
+            usage: Usage | None = None
             try:
                 response, usage = super().extract(
                     extract_client_wrapper,
@@ -324,23 +331,27 @@ class PostHocExtractor(StructuredOutputExtractor):
 Extract the following raw response into a structured format.
 
 Raw response:
-{raw_response.output}""",
+{raw_response.output}""",  # type: ignore[union-attr]
                     ),
                     logger,
-                )  # type: ignore
+                )
                 logger.info("PostHoc inference call succeeded")
             except Exception as e:  # noqa: BLE001 - retry with the next client
                 logger.error(f"PostHoc inference call failed: {e}. Retrying...")
                 continue
             finally:
                 extract_client_wrapper.model.rate_limit.release(
-                    {"tokens": usage.out_tokens}
+                    {"tokens": usage.out_tokens if usage is not None else 0}
                 )
 
-            logger.debug(f"Received response: {response.escape()}")
+            logger.debug(f"Received response: {response.escape()}")  # type: ignore[union-attr]
             return response, raw_usage
 
-    def format(self) -> str:
+        raise VerdictExecutionTimeError(
+            f"PostHoc extraction failed on all {len(extract_client_wrappers)} client(s)"
+        )
+
+    def format(self) -> str:  # type: ignore[override]
         if self.model_selection_policy is None:
             return f"{self.__class__.__name__.replace('Extractor', '')}({{model_name}} -> {{model_name}})"
         return f"{self.__class__.__name__.replace('Extractor', '')}({{model_name}} -> {self.model_selection_policy.char})"
@@ -447,9 +458,9 @@ Switch to a different model provider or to a non-TokenProbabilityExtractor.""")
         logger.debug(
             f"TokenProbabilityExtractor {self.__class__.__name__} received distribution over token support: {distribution}"
         )
-        return Schema.inline(distribution=dict[self.scale.T, float])(
+        return Schema.inline(distribution=dict[self.scale.T, float])(  # type: ignore[name-defined, call-arg]
             distribution=distribution
-        ), usage  # type: ignore
+        ), usage
 
     def __str__(self) -> str:
         return (

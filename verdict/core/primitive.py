@@ -2,11 +2,13 @@ import copy
 import operator
 import time
 from abc import ABCMeta
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import Enum
 from itertools import cycle, pairwise
 from typing import (
+    TYPE_CHECKING,
+    Any,
     ClassVar,
     Generic,
     Optional,
@@ -27,7 +29,6 @@ import rich.spinner
 import rich.table
 import rich.text
 import rich.tree
-from loguru._logger import Logger
 from typing_extensions import Self
 
 from verdict import config
@@ -50,14 +51,19 @@ from verdict.util.log import logger as base_logger
 from verdict.util.misc import DisableLogger, shorten_string
 from verdict.util.tracing import ExecutionContext
 
+if TYPE_CHECKING:
+    from loguru import Logger
+else:
+    from loguru._logger import Logger
+
 
 class Previous:
-    def __init__(self, dependencies: set["Unit"]) -> None:
+    def __init__(self, dependencies: Iterable["Unit"]) -> None:
         self.dependencies = sorted(
             dependencies, key=lambda node: getattr(node, "_ordering_timestamp", 0)
         )
 
-    def __getattr__(self, key: str) -> Schema | list[Schema]:
+    def __getattr__(self, key: str) -> Any:
         # e.g., previous.score -> (previous Judge unit dependency).output.score
         if len(self.dependencies) == 1 and hasattr(
             (unit := self.dependencies[0]).output, key
@@ -117,7 +123,7 @@ class UnitRegistry(ABCMeta):
     _registry: ClassVar[dict[str, type["Unit"]]] = {}
 
     def __new__(mcls, name, bases, namespace, **kwargs) -> type["Unit"]:
-        klass = super().__new__(mcls, name, bases, namespace, **kwargs)
+        klass: Any = super().__new__(mcls, name, bases, namespace, **kwargs)
 
         if name != "Unit":
             if "InputSchema" not in namespace and not any(
@@ -178,9 +184,9 @@ OutputSchemaT = TypeVar("OutputSchemaT", bound=Schema)
 
 
 class DataFlowSchema(Generic[InputSchemaT, ResponseSchemaT, OutputSchemaT]):
-    InputSchema: InputSchemaT
-    ResponseSchema: ResponseSchemaT
-    OutputSchema: OutputSchemaT
+    InputSchema: type[InputSchemaT]
+    ResponseSchema: type[ResponseSchemaT]
+    OutputSchema: type[OutputSchemaT]
 
 
 class Unit(
@@ -425,13 +431,13 @@ class Unit(
                     logger.debug(f"Received out_tokens={out_tokens}")
 
                     try:
-                        self.validate(conformed_input, response)
+                        self.validate(conformed_input, response)  # type: ignore[arg-type]
                     except Exception as e:
                         raise PostValidationError() from e
                     logger.debug("Unit.validate() successful")
 
                     try:
-                        output = self.process(conformed_input, response)
+                        output = self.process(conformed_input, response)  # type: ignore[arg-type]
                     except Exception as e:
                         raise PostProcessError() from e
                     logger.debug("Unit.process() successful")
@@ -774,10 +780,11 @@ class Block(Graph[Unit | Layer], Node, ModelConfigurable):
 
             for dependent in dependents:
                 materialized_dependent, _ = map_to_destination(
-                    dependent, source_context
-                )  # type: ignore
+                    dependent,  # type: ignore[arg-type]
+                    source_context,
+                )
                 materialized_dependent.graph = materialized
 
-                materialized_source.link(materialized_dependent)
+                materialized_source.link(materialized_dependent)  # type: ignore[arg-type]
 
         return materialized, context

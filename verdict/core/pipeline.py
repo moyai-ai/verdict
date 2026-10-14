@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import rich.console
 import rich.layout
@@ -36,7 +36,7 @@ class Pipeline:
     name: str
     block: Block
     executor: GraphExecutor
-    default_tracer: Tracer | list[Tracer] | None
+    default_tracer: TracingManager
 
     def __init__(
         self,
@@ -53,7 +53,7 @@ class Pipeline:
         super().__init__()
         self.name = name
         self.block = Block()
-        self.default_tracer: TracingManager = ensure_tracing_manager(tracer)
+        self.default_tracer = ensure_tracing_manager(tracer)
 
     def add_tracer(self, tracer: Tracer) -> None:
         """
@@ -65,7 +65,7 @@ class Pipeline:
         self.default_tracer.add_tracer(tracer)
 
     def copy(self) -> Pipeline:
-        pipeline = Pipeline(self.name, tracer=self.tracer)
+        pipeline = Pipeline(self.name, tracer=self.default_tracer)
         pipeline.block = self.block.copy()
         return pipeline
 
@@ -84,9 +84,9 @@ class Pipeline:
 
     def collect_outputs(
         self, executor: GraphExecutor, block_instance: Block
-    ) -> tuple[dict[str, Schema], list[str]]:
+    ) -> tuple[dict[str, Any], list[str]]:
         leaf_node_prefixes: list[str] = []
-        outputs: dict[str, Schema] = {}
+        outputs: dict[str, Any] = {}
 
         for node in block_instance.nodes:
             try:
@@ -102,12 +102,12 @@ class Pipeline:
                 for key, value in executor.outputs[node].model_dump().items():  # type: ignore
                     outputs[
                         (column_name := f"{self.name}_{'.'.join(node.prefix)}_{key}")
-                    ] = value  # type: ignore
+                    ] = value
                     if node in block_instance.leaf_nodes:
                         leaf_node_prefixes.append(column_name)
             except Exception as e:
                 raise VerdictDeclarationTimeError(
-                    f"Error collecting outputs for node {node} with outputs {executor.outputs[node]}"
+                    f"Error collecting outputs for node {node} with outputs {executor.outputs[node]}"  # type: ignore[index]
                 ) from e  # type: ignore
 
         return outputs, sorted(leaf_node_prefixes)
@@ -120,7 +120,7 @@ class Pipeline:
         display: bool = False,
         graceful: bool = False,
         tracers: Tracer | list[Tracer] | None = None,
-    ) -> tuple[dict[str, Schema], list[str]]:
+    ) -> tuple[dict[str, Any], list[str]]:
         """
         Run the pipeline.
 
@@ -194,7 +194,7 @@ class Pipeline:
                 block_instance.executor = self.executor
 
                 self.executor.submit(
-                    block_instance.root_nodes,
+                    block_instance.root_nodes,  # type: ignore[arg-type]
                     input_data,
                     trace_id=execution_context.trace_id,
                     parent_id=call.call_id
@@ -308,7 +308,7 @@ class Pipeline:
                 block_instance.executor = self.executor
 
                 self.executor.submit(
-                    block_instance.root_nodes,
+                    block_instance.root_nodes,  # type: ignore[arg-type]
                     input_data,
                     trace_id=execution_context.trace_id,
                     parent_id=call.call_id
@@ -321,7 +321,7 @@ class Pipeline:
             output = []
             leaf_node_prefixes = set()
             for row_id, block_instance in block_instances.items():
-                row_output = {"hash(row)": row_id}
+                row_output: dict[str, Any] = {"hash(row)": row_id}
                 outputs, _leaf_node_prefixes = self.collect_outputs(
                     self.executor, block_instance
                 )
@@ -360,7 +360,7 @@ class Pipeline:
         display: bool = False,
         graceful: bool = False,
         tracers: Tracer | list[Tracer] | None = None,
-    ) -> tuple[dict[str, Schema], list[str]]:
+    ) -> tuple[pd.DataFrame, list[str]]:
         """
         Run the pipeline on a list of Schemas.
 

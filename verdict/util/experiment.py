@@ -44,11 +44,14 @@ class Result:
 spinner = rich.spinner.Spinner("simpleDotsScrolling")
 
 
+MetricResult = Result | rich.spinner.Spinner
+
+
 def metric(
     percentage: bool = False,
-) -> Callable[[Callable[..., Result]], Callable[..., Result]]:
-    def decorator(func: Callable[..., Result]) -> Callable[..., Result]:
-        def wrapper(*args, **kwargs) -> Result:
+) -> Callable[[Callable[..., float]], Callable[..., MetricResult]]:
+    def decorator(func: Callable[..., float]) -> Callable[..., MetricResult]:
+        def wrapper(*args, **kwargs) -> MetricResult:
             df, _, prediction_col = args
             if prediction_col not in df.columns:
                 return spinner
@@ -66,28 +69,26 @@ def metric(
 
 
 @metric(percentage=True)
-def accuracy(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> Result:  # type: ignore
-    return (df[ground_truth_col] == df[prediction_col]).mean()  # type: ignore
+def accuracy(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> float:
+    return (df[ground_truth_col] == df[prediction_col]).mean()
 
 
 @metric()
-def kappa(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> Result:  # type: ignore
+def kappa(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> float:
     from sklearn.metrics import cohen_kappa_score  # type: ignore[import-untyped]
 
     return cohen_kappa_score(df[ground_truth_col], df[prediction_col])
 
 
 @metric()
-def kendall_tau(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> Result:  # type: ignore
+def kendall_tau(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> float:
     from scipy.stats import kendalltau  # type: ignore[import-untyped]
 
     return kendalltau(df[ground_truth_col], df[prediction_col]).statistic
 
 
 @metric()
-def spearman_rho(
-    df: pd.DataFrame, ground_truth_col: str, prediction_col: str
-) -> Result:  # type: ignore
+def spearman_rho(df: pd.DataFrame, ground_truth_col: str, prediction_col: str) -> float:
     from scipy.stats import spearmanr  # type: ignore[import-untyped]
 
     return spearmanr(df[ground_truth_col], df[prediction_col]).statistic
@@ -96,7 +97,7 @@ def spearman_rho(
 @metric()
 def krippendorff_alpha(
     df: pd.DataFrame, ground_truth_col: str, prediction_col: str
-) -> Result:  # type: ignore
+) -> float:
     import pandas as pd
 
     data_interval = (
@@ -124,7 +125,7 @@ def compute_stats_table(df: pd.DataFrame, experiment_config: ExperimentConfig) -
 
     Returns a list of rows, where each row is a tuple containing the data for a row in the table.
     """
-    rows = []
+    rows: list[tuple] = []
 
     def _get_row(
         pivot_column: str | None,
@@ -132,7 +133,9 @@ def compute_stats_table(df: pd.DataFrame, experiment_config: ExperimentConfig) -
         _df: pd.DataFrame,
         ground_truth_col: str,
         prediction_col: str,
-    ) -> tuple[str, str, str, str, str, Result, Result, Result, Result]:
+    ) -> tuple[
+        str, str, str, str, str, MetricResult, MetricResult, MetricResult, MetricResult
+    ]:
         return (
             f"{pivot_column}={pivot_value}" if pivot_column and pivot_value else "—",
             str(len(_df)),

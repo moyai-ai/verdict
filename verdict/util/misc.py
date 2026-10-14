@@ -7,7 +7,10 @@ import sys
 import threading
 from collections.abc import Callable
 from functools import wraps
-from typing import Any
+from typing import Any, Concatenate, ParamSpec, TypeVar
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 def is_signal_safe():
@@ -33,9 +36,11 @@ def is_signal_safe():
     return not (sys is None or threading is None)
 
 
-def keyboard_interrupt_safe(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
+def keyboard_interrupt_safe(
+    func: Callable[Concatenate[Any, P], R],
+) -> Callable[Concatenate[Any, P], R]:
     @wraps(func)
-    def wrapped(self: Any, *args, **kwargs) -> Any:
+    def wrapped(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
         if is_signal_safe():
             original_handler = signal.getsignal(signal.SIGINT)
             signal.signal(
@@ -46,6 +51,7 @@ def keyboard_interrupt_safe(func: Callable[[Any], Any]) -> Callable[[Any], Any]:
                 return func(self, *args, **kwargs)
             except KeyboardInterrupt:
                 self.executor.graceful_shutdown()
+                return None  # type: ignore[return-value]
             finally:
                 signal.signal(signal.SIGINT, original_handler)
         else:
@@ -71,8 +77,11 @@ class DisableLogger:
         self.logger.setLevel(self.previous_level)  # type: ignore
 
 
-def lightweight(cls: type) -> type:
-    cls.lightweight = True
+T = TypeVar("T", bound=type)
+
+
+def lightweight(cls: T) -> T:
+    cls.lightweight = True  # type: ignore[attr-defined]
     return cls
 
 

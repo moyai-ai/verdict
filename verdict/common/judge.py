@@ -1,4 +1,5 @@
 import string
+from typing import cast
 
 from verdict.core.primitive import Unit
 from verdict.scale import DiscreteScale, LikertScale, Scale
@@ -22,9 +23,9 @@ class JudgeUnit(Unit):
         self.scale = self.ResponseSchema.get_scale("score")
 
         if explanation:
-            self.OutputSchema = self.ResponseSchema = self.ResponseSchema.prepend(
+            self.OutputSchema = self.ResponseSchema = self.ResponseSchema.prepend(  # type: ignore[misc, assignment]
                 explanation=str
-            )  # type: ignore
+            )
 
         super().__init__(**kwargs)
 
@@ -59,7 +60,7 @@ class BestOfKJudgeUnit(Unit):
         )
         self.ResponseSchema = Schema.infer(choice=response_options)  # type: ignore
 
-        self.scale = self.ResponseSchema.get_scale("choice")
+        self.scale = cast(DiscreteScale, self.ResponseSchema.get_scale("choice"))
 
         if explanation:
             self.ResponseSchema = self.ResponseSchema.prepend(explanation=str)  # type: ignore
@@ -67,26 +68,28 @@ class BestOfKJudgeUnit(Unit):
 
         super().__init__(**kwargs)
 
-    def validate(self, input: InputSchema, response: ResponseSchema) -> bool:
+    def validate(self, input: InputSchema, response: ResponseSchema) -> None:
         if self.original:
-            assert len(input.options) != [""], (
+            assert input.options != [""], (
                 "Pass the options in InputSchema.options to index original choices."
             )
             assert len(input.options) == self.k, (
                 f"Number of input options must equal {self.k}"
             )
 
-    def process(self, input: InputSchema, response: ResponseSchema) -> OutputSchema:
+    def process(self, input: InputSchema, response: ResponseSchema) -> Schema:
         if not self.original:
             return response
 
+        # Scale-typed fields hold the raw model output at runtime
+        choice: str = response.choice  # type: ignore[assignment]
         fields = {
             "chosen": input.options[
-                self.scale.values.index(self.scale.value_mapping_fn(response.choice))
+                self.scale.values.index(self.scale.value_mapping_fn(choice))
             ]
         }
         if self.explanation:
-            fields["explanation"] = response.explanation
+            fields["explanation"] = response.explanation  # type: ignore[attr-defined]
 
         return self.OutputSchema(**fields)
 

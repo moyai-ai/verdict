@@ -33,15 +33,11 @@ class MapUnit(Unit):
 
     def execute(
         self, input: InputSchema, execution_context: ExecutionContext | None = None
-    ) -> ResponseSchema:
+    ) -> Schema:
         if execution_context is None:
             execution_context = ExecutionContext()
 
-        call_name = (
-            self.__class__.__name__
-            or getattr(self, "_char", None)
-            or getattr(self, "char", None)
-        )
+        call_name = self.__class__.__name__
 
         with execution_context.trace_call(
             name=call_name,
@@ -86,15 +82,11 @@ class FieldMapUnit(MapUnit):
         self,
         input: MapUnit.InputSchema,
         execution_context: ExecutionContext | None = None,
-    ) -> MapUnit.ResponseSchema:
+    ) -> Schema:
         if execution_context is None:
             execution_context = ExecutionContext()
 
-        call_name = (
-            self.__class__.__name__
-            or getattr(self, "_char", None)
-            or getattr(self, "char", None)
-        )
+        call_name = self.__class__.__name__
 
         with execution_context.trace_call(
             name=call_name,
@@ -103,11 +95,11 @@ class FieldMapUnit(MapUnit):
             values = input.values
 
             if len(self.fields) == 0 and len(values) > 0:
-                self.fields = list(values[0].model_fields.keys())
+                self.fields = list(type(values[0]).model_fields.keys())
 
-            assert all(field in values[0].model_fields for field in self.fields), (
-                f"Fields {self.fields} not a subset of input {input.values}"
-            )
+            assert all(
+                field in type(values[0]).model_fields for field in self.fields
+            ), f"Fields {self.fields} not a subset of input {input.values}"
 
             result = Schema.of(
                 **{  # type: ignore
@@ -124,7 +116,10 @@ class FieldMapUnit(MapUnit):
     def from_fn(
         fn: Callable[[list[Any]], Any], name: str
     ) -> Callable[[str | list[str] | None], "FieldMapUnit"]:
-        return lambda fields=None: FieldMapUnit(fn, fields, name=name)
+        def factory(fields: str | list[str] | None = None) -> FieldMapUnit:
+            return FieldMapUnit(fn, fields, name=name)
+
+        return factory
 
 
 class MeanPoolUnit(FieldMapUnit):

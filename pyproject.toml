@@ -75,3 +75,7 @@ exclude=["examples", "docs", "notebooks"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*", "datasets", "datasets.*"]
+ignore_missing_imports = true

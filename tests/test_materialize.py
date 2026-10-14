@@ -17,7 +17,7 @@ def with_block_wrap(_from, _to):
             yield a(), wrapped_a_instance, b(), wrapped_b_instance
 
     def decorator(func):
-        parametrize_args = wrap(_from, _to)
+        parametrize_args = list(wrap(_from, _to))
 
         return pytest.mark.parametrize("a, a_wrapped, b, b_wrapped", parametrize_args)(
             func

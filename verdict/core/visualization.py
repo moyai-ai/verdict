@@ -142,7 +142,7 @@ class BranchManager:
         ExecutionState.RUNNING: "dots3",
     }
 
-    lock: threading._RLock
+    lock: threading.RLock
     branch: rich.tree.Tree | None
     n_peers: int
     should_pin_output: bool
@@ -164,6 +164,11 @@ class BranchManager:
         self.length = 1 if self.should_pin_output else n_peers
 
         self.visited_states = defaultdict(int)
+
+    @property
+    def _label(self) -> Any:
+        # the label is a rich renderable whose internals are patched in place
+        return self.branch.label  # type: ignore[union-attr]
 
     def update(self, state: ExecutionState, unit: Unit) -> None:  # type: ignore[name-defined]
         from verdict.core.primitive import Unit
@@ -215,20 +220,17 @@ class BranchManager:
                 ExecutionState.RUNNING,
             ]:
                 if self.n_peers <= 1:
-                    self.branch.label.columns[0]._cells[0].renderables[0] = (
+                    self._label.columns[0]._cells[0].renderables[0] = (
                         rich.spinner.Spinner(  # type: ignore
                             BranchManager.spinner[state],
-                            text=self.branch.label.columns[0]
-                            ._cells[0]
-                            .renderables[0]
-                            .text,  # type: ignore
+                            text=self._label.columns[0]._cells[0].renderables[0].text,  # type: ignore
                         )
                     )
                 # (pending_tasks): increment pending (just once!), use task.fields
             elif state == ExecutionState.COMPLETE:
                 if self.n_peers <= 1:
-                    self.branch.label.columns[0]._cells[0].renderables[0] = (
-                        f"✔ {self.branch.label.columns[0]._cells[0].renderables[0].text}"  # type: ignore
+                    self._label.columns[0]._cells[0].renderables[0] = (
+                        f"✔ {self._label.columns[0]._cells[0].renderables[0].text}"  # type: ignore
                     )
                     if isinstance(unit.output, Schema):
                         unit_output = unit.output.model_dump()
@@ -250,22 +252,22 @@ class BranchManager:
                                 [f"{k}: {clean(v)}" for k, v in unit_output.items()]
                             )
 
-                        self.branch.label.columns[1]._cells[0] = rich.text.Text(
+                        self._label.columns[1]._cells[0] = rich.text.Text(
                             output_str, style="bright_black"
                         )  # type: ignore
                 else:
-                    self.branch.label.renderables[0].advance(task_id=0)  # type: ignore
+                    self._label.renderables[0].advance(task_id=0)  # type: ignore
                 # (pending_tasks): decrement pending
             else:
                 if self.n_peers <= 1:
-                    self.branch.label.columns[0]._cells[0].renderables[0] = (
-                        f"✘ {self.branch.label.columns[0]._cells[0].renderables[0].text}"  # type: ignore
+                    self._label.columns[0]._cells[0].renderables[0] = (
+                        f"✘ {self._label.columns[0]._cells[0].renderables[0].text}"  # type: ignore
                     )
                 else:
                     column = next(
                         filter(
                             lambda c: isinstance(c, rich.progress.SpinnerColumn),
-                            self.branch.label.renderables[0].columns,
+                            self._label.renderables[0].columns,
                         )
                     )  # type: ignore
                     column.spinner = SimpleNamespace(render=lambda task: "✘")

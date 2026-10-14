@@ -2,15 +2,19 @@ import inspect
 import types
 from abc import ABC
 from collections import defaultdict
-from typing import Any, Union, get_args, get_origin
+from typing import TYPE_CHECKING, Any, Union, get_args, get_origin
 
-from loguru._logger import Logger
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, create_model
 from pydantic.fields import FieldInfo
 
 from verdict.scale import Scale
 from verdict.util.exceptions import ConfigurationError
 from verdict.util.misc import shorten_string
+
+if TYPE_CHECKING:
+    from loguru import Logger
+else:
+    from loguru._logger import Logger
 
 
 class Schema(BaseModel, ABC):
@@ -25,7 +29,12 @@ class Schema(BaseModel, ABC):
         cls._scales = {}
 
         for field_name, field_type in cls.__annotations__.items():
-            if inspect.isclass(field_type) and issubclass(field_type, Scale):
+            # get_origin guard: on Python 3.10, inspect.isclass(list[str]) is True
+            if (
+                inspect.isclass(field_type)
+                and get_origin(field_type) is None
+                and issubclass(field_type, Scale)
+            ):
                 if field_name not in cls.__dict__:
                     raise ConfigurationError(f"""No token support specified for Scale field '{field_name}'.
 
@@ -71,18 +80,18 @@ class ResponseSchema(Schema):
         # Handle List-like objects
         if isinstance(obj, list) and obj:
             elem_type = Schema.infer_pydantic_annotation(obj[0])
-            return list[elem_type]
+            return list[elem_type]  # type: ignore[valid-type]
 
         # Handle Tuple-like objects
         if isinstance(obj, tuple) and obj:
             elem_types = tuple(Schema.infer_pydantic_annotation(e) for e in obj)
-            return tuple[elem_types]
+            return tuple[elem_types]  # type: ignore[valid-type]
 
         # Handle Dict-like objects
         if isinstance(obj, dict) and obj:
             key_type = Schema.infer_pydantic_annotation(next(iter(obj.keys())))
             value_type = Schema.infer_pydantic_annotation(next(iter(obj.values())))
-            return dict[key_type, value_type]
+            return dict[key_type, value_type]  # type: ignore[valid-type]
 
         # Default: Return the object's direct type
         return obj_type
@@ -235,10 +244,9 @@ class ResponseSchema(Schema):
             key = Schema.generate_key(expected_field_info)
 
             # names + types match, so we're good
-            if (
-                expected_field_name in current.model_fields
-                and key
-                == Schema.generate_key(current.model_fields[expected_field_name])
+            current_fields = type(current).model_fields
+            if expected_field_name in current_fields and key == Schema.generate_key(
+                current_fields[expected_field_name]
             ):
                 continue
 
@@ -247,9 +255,9 @@ class ResponseSchema(Schema):
                 current = current.add(
                     **{
                         expected_field_name: (
-                            field_value := expected_field_info.default_factory()
-                            if expected_field_info.default_factory is not None
-                            else expected_field_info.default
+                            field_value := expected_field_info.get_default(
+                                call_default_factory=True
+                            )
                         )
                     }
                 )
@@ -265,10 +273,9 @@ class ResponseSchema(Schema):
             key = Schema.generate_key(expected_field_info)
 
             # names + types match, so we're good
-            if (
-                expected_field_name in current.model_fields
-                and key
-                == Schema.generate_key(current.model_fields[expected_field_name])
+            current_fields = type(current).model_fields
+            if expected_field_name in current_fields and key == Schema.generate_key(
+                current_fields[expected_field_name]
             ):
                 continue
 
@@ -279,7 +286,7 @@ class ResponseSchema(Schema):
 
             # find a compatible field in the current schema
             found: bool = False
-            for field_name, field_info in current.model_fields.items():
+            for field_name, field_info in type(current).model_fields.items():
                 if key == Schema.generate_key(field_info):
                     current = current.add(
                         **{expected_field_name: getattr(current, field_name)}
@@ -303,7 +310,7 @@ class ResponseSchema(Schema):
 
     @staticmethod
     def generate_key(field_info: FieldInfo) -> str:
-        def remove_optional(typ: type) -> type:
+        def remove_optional(typ: Any) -> Any:
             if get_origin(typ) in (Union, types.UnionType):
                 args = tuple(arg for arg in get_args(typ) if arg is not type(None))
                 if len(args) == 1:
@@ -336,8 +343,8 @@ class ResponseSchema(Schema):
         return str(hash(",".join(keys)))
 
     @classmethod
-    def _fieldinfo_lookup(cls) -> dict[str, type]:
-        lookup = defaultdict(list)
+    def _fieldinfo_lookup(cls) -> dict[str, list[tuple[str, FieldInfo]]]:
+        lookup: dict[str, list[tuple[str, FieldInfo]]] = defaultdict(list)
         for field_name, field_info in cls.model_fields.items():
             lookup[Schema.generate_key(field_info)].append((field_name, field_info))
         return lookup

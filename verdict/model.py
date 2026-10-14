@@ -2,14 +2,14 @@ import pprint
 import textwrap
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import (
+    TYPE_CHECKING,
     Any,
     Union,
 )
 
-from loguru._logger import Logger
 from typing_extensions import Self
 
 from verdict.schema import Schema
@@ -21,9 +21,19 @@ from verdict.util.ratelimit import (
     UnlimitedRateLimiter,
 )
 
+if TYPE_CHECKING:
+    from loguru import Logger
+else:
+    from loguru._logger import Logger
+
+
+# chat messages; content is either a string or a list of content parts (text, image_url)
+Messages = list[dict[str, Any]]
+
 
 class Model(ABC):
     name: str
+    provider: str
     use_nonce: bool = False  # Default value for the base class
 
     rate_limiter: RateLimitPolicy | RateLimitConfig | None = field(
@@ -176,9 +186,7 @@ class Client:
             return self.model.char in provider_models
         return False
 
-    def _has_image_content(
-        self, messages: list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
-    ) -> bool:
+    def _has_image_content(self, messages: Messages) -> bool:
         for message in messages:
             content = message.get("content", "")
             if isinstance(content, list):
@@ -189,7 +197,7 @@ class Client:
         return False
 
     @contextmanager
-    def defaults(self, **inference_parameters_defaults) -> AbstractContextManager[None]:  # type: ignore
+    def defaults(self, **inference_parameters_defaults) -> Iterator[None]:
         original_inference_parameters = self.inference_parameters
 
         self.inference_parameters = {
@@ -203,8 +211,8 @@ class Client:
     def __call__(
         self,
         logger: Logger,
-        messages: list[dict[str, str]],
-        response_model: Schema | None = None,
+        messages: Messages,
+        response_model: type[Schema] | None = None,
         streaming: bool = False,
     ):
         from verdict import config
@@ -355,7 +363,9 @@ class ModelSelectionPolicy:
         return policy
 
     @staticmethod
-    def from_names(model_names: list[tuple[str, int, dict]]) -> "ModelSelectionPolicy":
+    def from_names(
+        model_names: list[tuple[str | Model, int, dict]],
+    ) -> "ModelSelectionPolicy":
         policy = ModelSelectionPolicy()
         for model_name, retries, inference_parameters in model_names:
             policy += ModelSelectionPolicy.from_name(
